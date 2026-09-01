@@ -1,0 +1,16 @@
+# Ignore unnecessary files for deployment
+node_modules/
+dist/
+.pnpm-store/
+*.log
+.env
+.env.local
+.git/
+.gitignore
+docs/
+patches/
+pnpm-lock.yaml
+template.json
+todo.md
+vitest.config.ts
+tsconfig.tsbuildinfo
