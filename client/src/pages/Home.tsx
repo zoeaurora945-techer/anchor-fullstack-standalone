@@ -223,7 +223,7 @@ export default function Home() {
               <div className="rounded-3xl border border-primary/20 bg-gradient-to-br from-orange-400/15 via-card to-amber-400/15 p-6">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
-                    <Badge className="border-0 bg-primary/15 text-primary"><Sparkles className="mr-1 h-3 w-3" />{copy.today}</Badge>
+                    <Badge className="border-0 bg-primary/15 text-primary"><Sparkles className="mr-1 h-3 w-3" />{copy.capture}</Badge>
                     <h1 className="mt-3 text-3xl font-semibold tracking-tight">{language === "zh" ? "先完成真正重要的事。" : "Finish what actually matters."}</h1>
                     <p className="mt-2 text-sm text-muted-foreground">{language === "zh" ? "直接输入或说出任务；默认重要，今天内到期自动进入 Q1，其余进入 Q3。" : "Type or speak a task. Important by default; today means Q1, otherwise Q3."}</p>
                   </div>
@@ -379,8 +379,8 @@ export default function Home() {
                               style={{ background: project.color ?? "#7FB5D6", boxShadow: `0 0 6px 1px ${project.color ?? "#7FB5D6"}44` }}
                             />
                             <span className="text-sm font-medium truncate">{project.title}</span>
-                            <span className={`text-xs ${project.status === "active" ? "text-emerald-500" : project.status === "paused" ? "text-amber-500" : project.status === "completed" ? "text-slate-400" : "text-slate-300"}`}>
-                              {project.status === "active" ? copy.statusActive : project.status === "paused" ? copy.statusPaused : project.status === "completed" ? copy.statusCompleted : copy.statusArchived}
+                            <span className={`text-xs ${project.entityStatus === "active" ? "text-emerald-500" : project.entityStatus === "paused" ? "text-amber-500" : project.entityStatus === "completed" ? "text-slate-400" : "text-slate-300"}`}>
+                              {project.entityStatus === "active" ? copy.statusActive : project.entityStatus === "paused" ? copy.statusPaused : project.entityStatus === "completed" ? copy.statusCompleted : copy.statusArchived}
                             </span>
                           </div>
                           <button onClick={() => handleEditProject(project)} className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition">

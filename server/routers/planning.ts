@@ -24,7 +24,7 @@ export const planningRouter = router({
   }),
   createGoal: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(200), description: z.string().max(5000).nullable().optional(), color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(), visibility: visibility.optional() })).mutation(async ({ ctx, input }) => {
     const db = await requireDb();
-    const goal = { id: nanoid(), ownerId: ctx.user.id, title: input.title, description: input.description ?? null, color: input.color ?? "#6EA8FE", visibility: input.visibility ?? "private" as const };
+    const goal = { id: nanoid(), ownerId: ctx.user.id, title: input.title, description: input.description ?? null, color: input.color ?? "#6EA8FE", entityStatus: "active" as const, visibility: input.visibility ?? "private" as const };
     await db.insert(goals).values(goal);
     return goal;
   }),
@@ -35,7 +35,7 @@ export const planningRouter = router({
   }),
   createProject: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(200), goalId: z.string().nullable().optional(), description: z.string().max(5000).nullable().optional(), color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(), visibility: visibility.optional() })).mutation(async ({ ctx, input }) => {
     const db = await requireDb();
-    const project = { id: nanoid(), ownerId: ctx.user.id, title: input.title, goalId: input.goalId ?? null, description: input.description ?? null, color: input.color ?? "#7FB5D6", visibility: input.visibility ?? "private" as const };
+    const project = { id: nanoid(), ownerId: ctx.user.id, title: input.title, goalId: input.goalId ?? null, description: input.description ?? null, color: input.color ?? "#7FB5D6", entityStatus: "active" as const, visibility: input.visibility ?? "private" as const };
     await db.insert(projects).values(project);
     if (project.goalId) await db.insert(relationshipEdges).values({ id: nanoid(), ownerId: ctx.user.id, fromType: "goal", fromId: project.goalId, toType: "project", toId: project.id, relation: "supports" }).onDuplicateKeyUpdate({ set: { relation: "supports" } });
     return project;
