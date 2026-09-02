@@ -26,8 +26,15 @@ async function patchSchema(): Promise<void> {
   const db = await getDb();
   if (!db) return;
   // projects.color：2026-09-01 新增（行星颜色自定义）
+  // 注意：迁移 SQL 使用 entity_status 列名，此处也需对应
   try {
-    await db.execute(sql`ALTER TABLE projects ADD COLUMN color VARCHAR(16) NOT NULL DEFAULT '#7FB5D6' AFTER status`);
+    await db.execute(sql`ALTER TABLE projects ADD COLUMN color VARCHAR(16) NOT NULL DEFAULT '#7FB5D6' AFTER entity_status`);
+  } catch {
+    /* 列已存在或其他环境差异，忽略 */
+  }
+  // goals.color 同样需要补建
+  try {
+    await db.execute(sql`ALTER TABLE goals ADD COLUMN color VARCHAR(16) NOT NULL DEFAULT '#6EA8FE' AFTER description`);
   } catch {
     /* 列已存在或其他环境差异，忽略 */
   }
