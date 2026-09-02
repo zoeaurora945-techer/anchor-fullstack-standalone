@@ -475,7 +475,7 @@ export default function Home() {
               <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Target className="h-4 w-4" />{language === "zh" ? "创建人生主线" : "Shape the path"}</CardTitle></CardHeader>
               <CardContent className="space-y-2">
                 <Input value={goalTitle} onChange={(e) => setGoalTitle(e.target.value)} placeholder={copy.enterGoalTitle} className="border-border bg-muted/50" />
-                <Button className="w-full" variant="outline" onClick={() => createGoal.mutate({ title: goalTitle, color: "#6EA8FE" })} disabled={!goalTitle.trim()}><Target className="mr-2 h-4 w-4" />{language === "zh" ? "创建目标（恒星）" : "Create goal (star)"}</Button>
+                <Button className="w-full" variant="outline" onClick={() => createGoal.mutate({ title: goalTitle, color: "#6EA8FE" })} disabled={!goalTitle.trim() || createGoal.isPending}><Target className="mr-2 h-4 w-4" />{createGoal.isPending ? (language === "zh" ? "创建中…" : "Creating…") : language === "zh" ? "创建目标（恒星）" : "Create goal (star)"}</Button>
                 <Input value={projectTitle} onChange={(e) => setProjectTitle(e.target.value)} placeholder={copy.enterProjectTitle} className="border-border bg-muted/50" />
                 <select value={projectGoalId} onChange={(e) => setProjectGoalId(e.target.value)} className="h-9 w-full rounded-md border border-border bg-muted/50 px-3 text-sm">
                   <option value="">{copy.noLinkedGoal}</option>
