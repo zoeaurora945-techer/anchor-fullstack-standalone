@@ -66,9 +66,9 @@ export default function Home() {
   const finishTask = trpc.task.finish.useMutation({ onSuccess: () => { utils.task.list.invalidate(); utils.time.week.invalidate(); } });
   const updateTask = trpc.task.update.useMutation({ onSuccess: () => { utils.task.list.invalidate(); } });
   const deleteTask = trpc.task.delete.useMutation({ onSuccess: () => utils.task.list.invalidate() });
-  const createGoal = trpc.planning.createGoal.useMutation({ onSuccess: () => { setGoalTitle(""); utils.planning.goals.invalidate(); } });
+  const createGoal = trpc.planning.createGoal.useMutation({ onSuccess: () => { setGoalTitle(""); utils.planning.goals.invalidate(); }, onError: (err) => { alert(language === "zh" ? "创建目标失败: " + err.message : "Failed to create goal: " + err.message); } });
   const updateGoal = trpc.planning.updateGoal.useMutation({ onSuccess: () => { utils.planning.goals.invalidate(); } });
-  const createProject = trpc.planning.createProject.useMutation({ onSuccess: () => { setProjectTitle(""); utils.planning.projects.invalidate(); } });
+  const createProject = trpc.planning.createProject.useMutation({ onSuccess: () => { setProjectTitle(""); utils.planning.projects.invalidate(); }, onError: (err) => { alert(language === "zh" ? "创建项目失败: " + err.message : "Failed to create project: " + err.message); } });
   const updateProject = trpc.planning.updateProject.useMutation({ onSuccess: () => { utils.planning.projects.invalidate(); } });
   const deleteGoalMut = trpc.planning.deleteGoal.useMutation({ onSuccess: () => { utils.planning.goals.invalidate(); utils.planning.projects.invalidate(); setSelectedGoal(null); } });
   const deleteProjectMut = trpc.planning.deleteProject.useMutation({ onSuccess: () => { utils.planning.projects.invalidate(); utils.task.list.invalidate(); } });
@@ -292,13 +292,13 @@ export default function Home() {
                   <CardHeader className="pb-2"><CardTitle className="text-base">{language === "zh" ? "创建人生主线" : "Shape the path"}</CardTitle></CardHeader>
                   <CardContent className="space-y-2">
                     <Input value={goalTitle} onChange={(e) => setGoalTitle(e.target.value)} placeholder={copy.enterGoalTitle} className="border-border bg-muted/50" />
-                    <Button className="w-full" variant="outline" onClick={() => createGoal.mutate({ title: goalTitle, color: "#6EA8FE" })} disabled={!goalTitle.trim()}><Target className="mr-2 h-4 w-4" />{language === "zh" ? "创建目标（恒星）" : "Create goal (star)"}</Button>
+                    <Button className="w-full" variant="outline" onClick={() => createGoal.mutate({ title: goalTitle, color: "#6EA8FE" })} disabled={!goalTitle.trim() || createGoal.isPending}><Target className="mr-2 h-4 w-4" />{createGoal.isPending ? (language === "zh" ? "创建中…" : "Creating…") : language === "zh" ? "创建目标（恒星）" : "Create goal (star)"}</Button>
                     <Input value={projectTitle} onChange={(e) => setProjectTitle(e.target.value)} placeholder={copy.enterProjectTitle} className="border-border bg-muted/50" />
                     <select value={projectGoalId} onChange={(e) => setProjectGoalId(e.target.value)} className="h-9 w-full rounded-md border border-border bg-muted/50 px-3 text-sm">
                       <option value="">{copy.noLinkedGoal}</option>
                       {goalRows.map((goal) => <option key={goal.id} value={goal.id}>{goal.title}</option>)}
                     </select>
-                    <Button className="w-full" variant="outline" onClick={() => createProject.mutate({ title: projectTitle, goalId: projectGoalId || null, color: "#7FB5D6" })} disabled={!projectTitle.trim()}><Plus className="mr-2 h-4 w-4" />{language === "zh" ? "创建项目（行星）" : "Create project (planet)"}</Button>
+                    <Button className="w-full" variant="outline" onClick={() => createProject.mutate({ title: projectTitle, goalId: projectGoalId || null, color: "#7FB5D6" })} disabled={!projectTitle.trim() || createProject.isPending}><Plus className="mr-2 h-4 w-4" />{createProject.isPending ? (language === "zh" ? "创建中…" : "Creating…") : language === "zh" ? "创建项目（行星）" : "Create project (planet)"}</Button>
                   </CardContent>
                 </Card>
               </div>
@@ -481,7 +481,7 @@ export default function Home() {
                   <option value="">{copy.noLinkedGoal}</option>
                   {goalRows.map((goal) => <option key={goal.id} value={goal.id}>{goal.title}</option>)}
                 </select>
-                <Button className="w-full" variant="outline" onClick={() => createProject.mutate({ title: projectTitle, goalId: projectGoalId || null, color: "#7FB5D6" })} disabled={!projectTitle.trim()}><Plus className="mr-2 h-4 w-4" />{language === "zh" ? "创建项目（行星）" : "Create project (planet)"}</Button>
+                <Button className="w-full" variant="outline" onClick={() => createProject.mutate({ title: projectTitle, goalId: projectGoalId || null, color: "#7FB5D6" })} disabled={!projectTitle.trim() || createProject.isPending}><Plus className="mr-2 h-4 w-4" />{createProject.isPending ? (language === "zh" ? "创建中…" : "Creating…") : language === "zh" ? "创建项目（行星）" : "Create project (planet)"}</Button>
               </CardContent>
             </Card>
 
