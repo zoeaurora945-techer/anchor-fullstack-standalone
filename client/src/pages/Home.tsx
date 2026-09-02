@@ -348,7 +348,7 @@ export default function Home() {
                     id: p.id,
                     title: p.title,
                     color: p.color ?? "#7FB5D6",
-                    status: p.status,
+                    status: p.entityStatus,
                     tasks: taskRows
                       .filter((t) => t.projectId === p.id)
                       .map((t) => ({ id: t.id, status: t.status, dueAt: t.dueAt, estimatedMinutes: t.estimatedMinutes, title: t.title })),
