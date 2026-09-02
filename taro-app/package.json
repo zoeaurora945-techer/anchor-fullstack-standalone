@@ -40,7 +40,6 @@
     "@tarojs/plugin-platform-lark": "^3.6.0",
     "@tarojs/plugin-platform-swan": "^3.6.0",
     "@tarojs/plugin-platform-tt": "^3.6.0",
-    "@tarojs/plugin-framework-react": "^3.6.0",
     "@tarojs/react": "^3.6.0",
     "@tarojs/runtime": "^3.6.0",
     "@tarojs/shared": "^3.6.0",
