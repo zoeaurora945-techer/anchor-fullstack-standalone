@@ -170,8 +170,9 @@ export function WeekGanttChart({
             {/* 项目行 */}
             {projects.map((project, pi) => {
               const group = groupByStatus(project.tasks);
-              const doneTasks = project.tasks.filter((t) => t.status === "done");
-              const progress = project.tasks.length > 0 ? Math.round((doneTasks.length / project.tasks.length) * 100) : 0;
+              const totalMinutes = project.tasks.reduce((sum, t) => sum + (t.estimatedMinutes ?? 0), 0) || 1;
+              const completedMinutes = project.tasks.filter((t) => t.status === "done").reduce((sum, t) => sum + (t.estimatedMinutes ?? 0), 0);
+              const progress = Math.round((completedMinutes / totalMinutes) * 100);
 
               return (
                 <div

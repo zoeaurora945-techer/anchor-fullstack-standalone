@@ -37,7 +37,6 @@ export default function Home() {
   const [view, setView] = useState<View>("today");
   const { language, setLanguage } = useLanguage();
   const [newTask, setNewTask] = useState("");
-  const [newDue, setNewDue] = useState("");
   const [goalTitle, setGoalTitle] = useState("");
   const [projectTitle, setProjectTitle] = useState("");
   const [projectGoalId, setProjectGoalId] = useState("");
@@ -64,7 +63,7 @@ export default function Home() {
   const week = trpc.time.week.useQuery({}, { enabled: Boolean(user) });
   const activeTimer = trpc.time.active.useQuery(undefined, { enabled: Boolean(user), refetchInterval: 30000 });
   const friendships = trpc.social.friendships.useQuery(undefined, { enabled: Boolean(user) });
-  const createTask = trpc.task.create.useMutation({ onSuccess: () => { setNewTask(""); setNewDue(""); utils.task.list.invalidate(); utils.time.week.invalidate(); } });
+  const createTask = trpc.task.create.useMutation({ onSuccess: () => { setNewTask(""); utils.task.list.invalidate(); utils.time.week.invalidate(); } });
   const moveTask = trpc.task.move.useMutation({ onSuccess: () => utils.task.list.invalidate() });
   const finishTask = trpc.task.finish.useMutation({ onSuccess: () => { utils.task.list.invalidate(); utils.time.week.invalidate(); } });
   const updateTask = trpc.task.update.useMutation({ onSuccess: () => { utils.task.list.invalidate(); } });
@@ -101,7 +100,7 @@ export default function Home() {
     { id: "settings", icon: ShieldCheck, label: copy.settings },
   ];
 
-  const addTask = () => { if (!newTask.trim()) return; createTask.mutate({ title: newTask.trim(), dueAt: newDue ? new Date(newDue) : null, duePrecision: newDue ? "datetime" : "unknown" }); };
+  const addTask = () => { if (!newTask.trim()) return; createTask.mutate({ title: newTask.trim(), dueAt: null, duePrecision: "unknown" }); };
   const onDrop = (event: DragEvent<HTMLDivElement>, quadrant: "q1" | "q2" | "q3" | "q4") => { event.preventDefault(); const id = event.dataTransfer.getData("anchor-task"); if (id) moveTask.mutate({ id, quadrant }); };
   const handleEditTask = (task: any) => setEditingTask(task);
   const handleSaveTask = (patch: any) => updateTask.mutate(patch);
@@ -233,10 +232,9 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div className="mt-6 grid gap-2 md:grid-cols-[1fr_auto_auto]">
+                <div className="mt-6 grid gap-2 md:grid-cols-[1fr_auto]">
                   <Input value={newTask} onChange={(e) => setNewTask(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addTask()} placeholder={language === "zh" ? "例如：今天 17:00 前完成项目方案" : "e.g. Finish project proposal by 5pm"} className="border-border bg-card/50" />
-                  <Input type="datetime-local" value={newDue} onChange={(e) => setNewDue(e.target.value)} className="border-border bg-card/50" />
-                  <Button onClick={addTask} disabled={createTask.isPending}><Plus className="mr-2 h-4 w-4" />{copy.addTask}</Button>
+                  <Button onClick={addTask} disabled={createTask.isPending}><Plus className="mr-2 h-4 w-4" />{copy.capture}</Button>
                 </div>
 
                 <div className="mt-3 flex gap-2">
