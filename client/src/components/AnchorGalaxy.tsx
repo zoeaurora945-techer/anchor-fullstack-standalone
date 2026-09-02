@@ -128,8 +128,35 @@ function makeGlowTexture(): THREE.Texture {
   return tex;
 }
 
-export function AnchorGalaxy({ goals, projects, tasks, onSelectGoal }: { goals: Goal[]; projects: Project[]; tasks: Task[]; onSelectGoal?: (id: string) => void }) {
+export type GoalSelection = { id: string; title: string; color: string; screen: { x: number; y: number } };
+
+export function AnchorGalaxy({
+  goals,
+  projects,
+  tasks,
+  onSelectGoal,
+  onSelectGoalDetail,
+  destroyingGoalId,
+  onDestroyComplete,
+}: {
+  goals: Goal[];
+  projects: Project[];
+  tasks: Task[];
+  onSelectGoal?: (id: string) => void;
+  onSelectGoalDetail?: (selection: GoalSelection) => void;
+  /** 正在播放摧毁动效的恒星 id；动效播完回调 onDestroyComplete，由父组件删除数据。 */
+  destroyingGoalId?: string | null;
+  onDestroyComplete?: (goalId: string) => void;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
+  /* 供摧毁动效 effect 访问当前场景（主 effect 每次重建都会刷新） */
+  const sceneRef = useRef<{
+    scene: THREE.Scene;
+    camera: THREE.PerspectiveCamera;
+    stars: THREE.Object3D[];
+    host: HTMLDivElement;
+    alive: { value: boolean };
+  } | null>(null);
 
   useEffect(() => {
     const host = containerRef.current;
@@ -152,8 +179,12 @@ export function AnchorGalaxy({ goals, projects, tasks, onSelectGoal }: { goals: 
     const scene = new THREE.Scene();
     scene.fog = new THREE.FogExp2(FOG_BLUE, 0.012);
 
+    const alive = { value: true };
+    sceneRef.current = { scene: scene as THREE.Scene, camera: null as unknown as THREE.PerspectiveCamera, stars: [], host, alive };
+
     const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 400);
     camera.position.set(0, 14, 30);
+    if (sceneRef.current) sceneRef.current.camera = camera;
 
     /* ---------- 轨道控制器：拖拽旋转 / 滚轮缩放 / 右键平移 ---------- */
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -284,6 +315,7 @@ export function AnchorGalaxy({ goals, projects, tasks, onSelectGoal }: { goals: 
       root.add(hit);
       scene.add(root);
       stars.push(root);
+      if (sceneRef.current) sceneRef.current.stars = stars;
 
       const linked = projects.filter((project) => project.goalId === goal.id);
       linked.forEach((project, projectIndex) => {
@@ -412,7 +444,26 @@ export function AnchorGalaxy({ goals, projects, tasks, onSelectGoal }: { goals: 
         .intersectObjects(stars, true)
         .find((item) => item.object.userData.goalId || item.object.parent?.userData.goalId);
       const id = hit?.object.userData.goalId ?? hit?.object.parent?.userData.goalId;
-      if (id) onSelectGoal?.(id);
+      if (!id) return;
+      const goal = goals.find((g) => g.id === id);
+      if (goal && onSelectGoalDetail) {
+        // 恒星世界坐标 → 屏幕投影坐标，供操作面板定位
+        const root = stars.find((s) => s.userData.goalId === id);
+        if (root) {
+          const world = root.position.clone().project(camera);
+          onSelectGoalDetail({
+            id: goal.id,
+            title: goal.title,
+            color: goal.color,
+            screen: {
+              x: (world.x * 0.5 + 0.5) * rect.width,
+              y: (-world.y * 0.5 + 0.5) * rect.height,
+            },
+          });
+          return;
+        }
+      }
+      onSelectGoal?.(id);
     };
     renderer.domElement.addEventListener("pointerdown", onPointerDown);
     renderer.domElement.addEventListener("pointerup", onPointerUp);
@@ -444,6 +495,8 @@ export function AnchorGalaxy({ goals, projects, tasks, onSelectGoal }: { goals: 
     render();
 
     return () => {
+      alive.value = false;
+      sceneRef.current = null;
       savedCam = {
         pos: camera.position.toArray(),
         target: controls.target.toArray(),
@@ -457,13 +510,123 @@ export function AnchorGalaxy({ goals, projects, tasks, onSelectGoal }: { goals: 
       renderer.dispose();
       if (renderer.domElement.parentNode === host) host.removeChild(renderer.domElement);
     };
-  }, [goals, projects, tasks, onSelectGoal]);
+  }, [goals, projects, tasks, onSelectGoal, onSelectGoalDetail]);
+
+  /* ---------- 恒星摧毁动效：坍缩 → 爆闪 → 碎片爆散渐隐 ---------- */
+  useEffect(() => {
+    if (!destroyingGoalId) return;
+    const ctx = sceneRef.current;
+    if (!ctx || !ctx.alive.value) return;
+    const { scene, stars, alive } = ctx;
+    const root = stars.find((s) => s.userData.goalId === destroyingGoalId);
+    if (!root) {
+      // 数据已先行消失（例如列表刷新），直接完成
+      onDestroyComplete?.(destroyingGoalId);
+      return;
+    }
+
+    const starColor = new THREE.Color((goals.find((g) => g.id === destroyingGoalId)?.color) ?? "#ffd27d");
+
+    /* 碎片粒子：恒星颜色 + 白热混合，从核心向外爆散并受重力坍落 */
+    const COUNT = 160;
+    const positions = new Float32Array(COUNT * 3);
+    const velocities: THREE.Vector3[] = [];
+    const origin = new THREE.Vector3();
+    root.getWorldPosition(origin);
+    for (let i = 0; i < COUNT; i++) {
+      positions[i * 3] = origin.x;
+      positions[i * 3 + 1] = origin.y;
+      positions[i * 3 + 2] = origin.z;
+      // 球面均匀方向
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      const speed = 2.2 + Math.random() * 4.2;
+      velocities.push(new THREE.Vector3(
+        Math.sin(phi) * Math.cos(theta) * speed,
+        Math.cos(phi) * speed * 0.9 + 0.8,
+        Math.sin(phi) * Math.sin(theta) * speed,
+      ));
+    }
+    const fragGeo = new THREE.BufferGeometry();
+    fragGeo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    const fragMat = new THREE.PointsMaterial({
+      size: 0.34,
+      map: makeGlowTexture(),
+      color: starColor,
+      transparent: true,
+      opacity: 1,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const fragments = new THREE.Points(fragGeo, fragMat);
+    fragments.frustumCulled = false;
+    scene.add(fragments);
+
+    // 冲击波光环
+    const shockMat = new THREE.SpriteMaterial({
+      map: makeGlowTexture(), color: starColor, transparent: true,
+      opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending,
+    });
+    const shockwave = new THREE.Sprite(shockMat);
+    shockwave.position.copy(origin);
+    shockwave.scale.set(1, 1, 1);
+    scene.add(shockwave);
+
+    const corona = root.children.find((c) => (c as THREE.Sprite).isSprite) as THREE.Sprite | undefined;
+    const DURATION = 1500;
+    const start = performance.now();
+    let raf = 0;
+
+    const tick = () => {
+      const now = performance.now();
+      const p = Math.min((now - start) / DURATION, 1);
+      if (!alive.value) {
+        scene.remove(fragments, shockwave);
+        fragGeo.dispose(); fragMat.dispose(); shockMat.map?.dispose(); shockMat.dispose();
+        return;
+      }
+      // 阶段1（0~0.3）：核心坍缩 + 光晕爆闪；阶段2（0.3~1）：碎片扩散渐隐
+      if (p < 0.3) {
+        const k = p / 0.3;
+        root.scale.setScalar(1 - 0.92 * k * k);
+        if (corona) corona.material.opacity = 0.55 + 2.2 * k;
+        shockwave.scale.setScalar(1 + 22 * k);
+        shockMat.opacity = 0.9 * (1 - k);
+      } else {
+        root.scale.setScalar(0.08);
+        if (corona) corona.material.opacity = Math.max(0, 2.75 * (1 - (p - 0.3) / 0.25));
+        const attr = fragGeo.getAttribute("position") as THREE.BufferAttribute;
+        const dt = 1 / 60;
+        for (let i = 0; i < COUNT; i++) {
+          const v = velocities[i];
+          v.y -= 1.6 * dt; // 重力坍落
+          attr.setXYZ(i, attr.getX(i) + v.x * dt, attr.getY(i) + v.y * dt, attr.getZ(i) + v.z * dt);
+        }
+        attr.needsUpdate = true;
+        fragMat.opacity = Math.max(0, 1 - (p - 0.3) / 0.7);
+      }
+      if (p < 1) {
+        raf = requestAnimationFrame(tick);
+      } else {
+        scene.remove(fragments, shockwave);
+        fragGeo.dispose(); fragMat.dispose(); shockMat.map?.dispose(); shockMat.dispose();
+        onDestroyComplete?.(destroyingGoalId);
+      }
+    };
+    raf = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      scene.remove(fragments, shockwave);
+      fragGeo.dispose(); fragMat.dispose(); shockMat.map?.dispose(); shockMat.dispose();
+    };
+  }, [destroyingGoalId, goals, onDestroyComplete]);
 
   return (
     <div className="relative h-[460px] w-full overflow-hidden rounded-3xl border border-primary/20 bg-[#0a1836] shadow-[0_0_90px_rgba(70,120,220,0.18)]">
       <div ref={containerRef} className="absolute inset-0" />
       <div className="pointer-events-none absolute bottom-3 left-4 text-[11px] text-white/45">
-        拖拽旋转 · 滚轮缩放 · 点击恒星聚焦
+        拖拽旋转 · 滚轮缩放 · 点击恒星编辑或摧毁
       </div>
     </div>
   );

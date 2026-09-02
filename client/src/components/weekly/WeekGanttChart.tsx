@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { t, type Language } from "@/lib/i18n";
 import { ZoomIn, ZoomOut, MoveHorizontal, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatShortDate } from "@/lib/utils";
 
 export type GanttProject = {
   id: string;
@@ -116,7 +117,7 @@ export function WeekGanttChart({
         </div>
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
           <ChevronLeft className="h-4 w-4 cursor-pointer hover:text-foreground" onClick={() => setScrollX((x) => Math.max(0, x - dayWidth))} />
-          <span>{days[0].date.toLocaleDateString()} ~ {days[days.length - 1].date.toLocaleDateString()}</span>
+          <span>{formatShortDate(days[0].date)} ~ {formatShortDate(days[days.length - 1].date)}</span>
           <ChevronRight className="h-4 w-4 cursor-pointer hover:text-foreground" onClick={() => setScrollX((x) => x + dayWidth)} />
         </div>
       </div>

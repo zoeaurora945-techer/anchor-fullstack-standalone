@@ -1,21 +1,21 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { Clock3, Target, Play, Pause, CheckCircle2, Star, Edit2, Sparkles, Orbit, UsersRound, ShieldCheck, Cloud, TimerReset, Stars, Plus, Check, X, Pencil, ZoomIn, ZoomOut, MoveHorizontal, ChevronLeft, ChevronRight, Mic } from "lucide-react";
+import { Clock3, Target, Play, Pause, CheckCircle2, Star, Edit2, Sparkles, Orbit, UsersRound, ShieldCheck, Cloud, TimerReset, Stars, Plus, Check, X, Pencil, ZoomIn, ZoomOut, MoveHorizontal, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import { t, type Language } from "@/lib/i18n";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { trpc } from "@/lib/trpc";
 import { startLogin } from "@/const";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { cn } from "@/lib/utils";
+import { cn, formatShortDate, formatTime } from "@/lib/utils";
 import { GoalEditor } from "@/components/galaxy/GoalEditor";
 import { ProjectEditor } from "@/components/galaxy/ProjectEditor";
 import { WeekGanttChart } from "@/components/weekly/WeekGanttChart";
-import { AnchorGalaxy } from "@/components/AnchorGalaxy";
+import { AnchorGalaxy, type GoalSelection } from "@/components/AnchorGalaxy";
 import { BoardModeSwitch } from "@/components/quadrant/BoardModeSwitch";
 import { TaskListPanel } from "@/components/tasks/TaskListPanel";
 import { TaskEditorDialog } from "@/components/tasks/TaskEditorDialog";
@@ -42,15 +42,16 @@ export default function Home() {
   const [projectTitle, setProjectTitle] = useState("");
   const [projectGoalId, setProjectGoalId] = useState("");
   const [friendId, setFriendId] = useState("");
-  const [captureText, setCaptureText] = useState("");
   const [selectedGoal, setSelectedGoal] = useState<string | null>(null);
   const [universeMode, setUniverseMode] = useState<"life" | "archive">("life");
-  const [isRecording, setIsRecording] = useState(false);
   const [editingTask, setEditingTask] = useState<any>(null);
   const [editingGoal, setEditingGoal] = useState<any>(null);
   const [editingProject, setEditingProject] = useState<any>(null);
+  /* 宇宙视图：恒星操作面板 / 摧毁确认 / 摧毁动效 */
+  const [goalSelection, setGoalSelection] = useState<GoalSelection | null>(null);
+  const [destroyConfirm, setDestroyConfirm] = useState<{ type: "goal" | "project"; id: string; title: string } | null>(null);
+  const [destroyingGoalId, setDestroyingGoalId] = useState<string | null>(null);
   const [boardMode, setBoardMode] = useState<"quadrant" | "list">("quadrant");
-  const recognitionRef = useRef<any>(null);
   const copy = t(language);
   const utils = trpc.useUtils();
   const profile = trpc.sync.profile.useQuery(undefined, { enabled: Boolean(user) });
@@ -69,12 +70,13 @@ export default function Home() {
   const updateGoal = trpc.planning.updateGoal.useMutation({ onSuccess: () => { utils.planning.goals.invalidate(); } });
   const createProject = trpc.planning.createProject.useMutation({ onSuccess: () => { setProjectTitle(""); utils.planning.projects.invalidate(); } });
   const updateProject = trpc.planning.updateProject.useMutation({ onSuccess: () => { utils.planning.projects.invalidate(); } });
+  const deleteGoalMut = trpc.planning.deleteGoal.useMutation({ onSuccess: () => { utils.planning.goals.invalidate(); utils.planning.projects.invalidate(); setSelectedGoal(null); } });
+  const deleteProjectMut = trpc.planning.deleteProject.useMutation({ onSuccess: () => { utils.planning.projects.invalidate(); utils.task.list.invalidate(); } });
   const startTimer = trpc.time.start.useMutation({ onSuccess: () => activeTimer.refetch() });
   const stopTimer = trpc.time.stop.useMutation({ onSuccess: () => { activeTimer.refetch(); utils.time.week.invalidate(); } });
   const updateProfile = trpc.sync.updateProfile.useMutation({ onSuccess: () => profile.refetch() });
   const requestFriend = trpc.social.requestFriend.useMutation({ onSuccess: () => { setFriendId(""); friendships.refetch(); } });
   const setVisibility = trpc.social.setVisibility.useMutation({ onSuccess: () => { profile.refetch(); utils.planning.goals.invalidate(); } });
-  const capture = trpc.ai.captureText.useMutation({ onSuccess: () => { setCaptureText(""); utils.task.list.invalidate(); } });
   const createReport = trpc.time.report.useMutation({ onSuccess: () => utils.time.week.invalidate() });
 
   const taskRows = tasks.data ?? [];
@@ -104,23 +106,43 @@ export default function Home() {
   const handleEditGoal = (goal: any) => setEditingGoal(goal);
   const handleSaveGoal = (patch: any) => updateGoal.mutate({ id: patch.id, patch });
   const handleEditProject = (project: any) => setEditingProject(project);
-  const handleSaveProject = (patch: any) => updateProject.mutate({ id: patch.id, patch: { title: patch.title, status: patch.status, goalId: patch.goalId } });
+  const handleSaveProject = (patch: any) => updateProject.mutate({ id: patch.id, patch: { title: patch.title, status: patch.status, goalId: patch.goalId, color: patch.color } });
 
-  const startRecording = () => {
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) { alert(language === "zh" ? "浏览器不支持语音识别，请用 Chrome。" : "Use Chrome for speech recognition."); return; }
-    const rec = new SR();
-    rec.lang = language === "zh" ? "zh-CN" : "en-US";
-    rec.interimResults = false;
-    rec.maxAlternatives = 1;
-    rec.onresult = (e: any) => { const text = e.results[0][0].transcript; capture.mutate({ text: text.trim(), language }); };
-    rec.onerror = () => setIsRecording(false);
-    rec.onend = () => setIsRecording(false);
-    rec.start();
-    recognitionRef.current = rec;
-    setIsRecording(true);
+  /* 宇宙视图：选中恒星（含屏幕坐标，供操作面板定位） */
+  const handleSelectGoalDetail = useCallback((selection: GoalSelection) => {
+    setGoalSelection(selection);
+  }, []);
+
+  /* 摧毁流程：先播 1.5s 碎裂动效，动效结束（或 2.4s 兜底）再删除数据 */
+  const destroyDoneRef = useRef(false);
+  const handleConfirmDestroy = () => {
+    if (!destroyConfirm) return;
+    const { type, id } = destroyConfirm;
+    setDestroyConfirm(null);
+    destroyDoneRef.current = false;
+    const doDelete = () => {
+      if (destroyDoneRef.current) return;
+      destroyDoneRef.current = true;
+      if (type === "goal") deleteGoalMut.mutate({ id });
+      else deleteProjectMut.mutate({ id });
+      setDestroyingGoalId(null);
+      setGoalSelection(null);
+    };
+    if (type === "goal") {
+      setDestroyingGoalId(id);
+      window.setTimeout(doDelete, 2400); // 兜底：动效被场景重建打断时也能删除
+    } else {
+      doDelete(); // 行星暂无专属动效，直接删
+    }
   };
-  const stopRecording = () => { if (recognitionRef.current) { recognitionRef.current.stop(); recognitionRef.current = null; } setIsRecording(false); };
+  const handleDestroyComplete = useCallback((goalId: string) => {
+    if (destroyDoneRef.current) return;
+    destroyDoneRef.current = true;
+    deleteGoalMut.mutate({ id: goalId });
+    setDestroyingGoalId(null);
+    setGoalSelection(null);
+  }, []);
+
 
   if (loading) return <div className="grid min-h-screen place-items-center bg-background text-muted-foreground"><Stars className="h-7 w-7 animate-pulse" /></div>;
   if (!user) return (
@@ -181,7 +203,7 @@ export default function Home() {
               <div className="rounded-3xl border border-primary/20 bg-gradient-to-br from-orange-400/15 via-card to-amber-400/15 p-6">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
-                    <Badge className="border-0 bg-primary/15 text-primary"><Sparkles className="mr-1 h-3 w-3" />{copy.capture}</Badge>
+                    <Badge className="border-0 bg-primary/15 text-primary"><Sparkles className="mr-1 h-3 w-3" />{copy.today}</Badge>
                     <h1 className="mt-3 text-3xl font-semibold tracking-tight">{language === "zh" ? "先完成真正重要的事。" : "Finish what actually matters."}</h1>
                     <p className="mt-2 text-sm text-muted-foreground">{language === "zh" ? "直接输入或说出任务；默认重要，今天内到期自动进入 Q1，其余进入 Q3。" : "Type or speak a task. Important by default; today means Q1, otherwise Q3."}</p>
                   </div>
@@ -195,13 +217,6 @@ export default function Home() {
                   <Input value={newTask} onChange={(e) => setNewTask(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addTask()} placeholder={language === "zh" ? "例如：今天 17:00 前完成项目方案" : "e.g. Finish project proposal by 5pm"} className="border-border bg-card/50" />
                   <Input type="datetime-local" value={newDue} onChange={(e) => setNewDue(e.target.value)} className="border-border bg-card/50" />
                   <Button onClick={addTask} disabled={createTask.isPending}><Plus className="mr-2 h-4 w-4" />{copy.addTask}</Button>
-                </div>
-
-                <div className="mt-3 flex gap-2">
-                  <button onClick={startRecording} disabled={isRecording} className={cn("flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition", isRecording ? "border-red-400 bg-red-500/10 text-red-500 animate-pulse" : "border-border text-muted-foreground hover:bg-muted/60")}>
-                    <Mic className="h-3.5 w-3.5" />{isRecording ? (language === "zh" ? "录音中…" : "Recording…") : copy.record}
-                  </button>
-                  {isRecording && <button onClick={stopRecording} className="rounded-full border border-border bg-muted/60 px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted">{copy.stop}</button>}
                 </div>
 
                 <div className="mt-4 flex justify-end"><BoardModeSwitch mode={boardMode} onModeChange={setBoardMode} language={language} /></div>
@@ -224,7 +239,7 @@ export default function Home() {
                                   <button className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border border-muted-foreground/30 text-transparent hover:border-emerald-500 hover:bg-emerald-500 hover:text-white" onClick={(e) => { e.stopPropagation(); handleToggleDone(task.id); }}><Check className="h-3 w-3" /></button>
                                   <div className="min-w-0 flex-1">
                                     <p className="text-sm font-medium leading-5">{task.title}</p>
-                                    <p className="mt-1 text-xs text-muted-foreground">{task.dueAt ? new Date(task.dueAt).toLocaleString() : copy.noTime}</p>
+                                    <p className="mt-1 text-xs text-muted-foreground">{task.dueAt ? `${formatShortDate(task.dueAt)} ${formatTime(task.dueAt)}` : copy.noTime}</p>
                                   </div>
                                 </div>
                               </article>
@@ -317,26 +332,14 @@ export default function Home() {
             </Card>
 
             <div className="grid gap-5 lg:grid-cols-[1fr_0.8fr]">
-              {/* 右侧：创建目标 + 项目列表 */}
+              {/* 左侧：已创建项目列表（创建人生主线表单已移至宇宙视图） */}
               <div className="space-y-5">
-                {/* 创建人生主线 */}
-                <Card className="border-border bg-card/50">
-                  <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Target className="h-4 w-4" />{language === "zh" ? "创建人生主线" : "Shape the path"}</CardTitle></CardHeader>
-                  <CardContent className="space-y-2">
-                    <Input value={goalTitle} onChange={(e) => setGoalTitle(e.target.value)} placeholder={copy.enterGoalTitle} className="border-border bg-muted/50" />
-                    <Button className="w-full" variant="outline" onClick={() => createGoal.mutate({ title: goalTitle, color: "#6EA8FE" })} disabled={!goalTitle.trim()}><Target className="mr-2 h-4 w-4" />{language === "zh" ? "创建目标（恒星）" : "Create goal (star)"}</Button>
-                    <Input value={projectTitle} onChange={(e) => setProjectTitle(e.target.value)} placeholder={copy.enterProjectTitle} className="border-border bg-muted/50" />
-                    <select value={projectGoalId} onChange={(e) => setProjectGoalId(e.target.value)} className="h-9 w-full rounded-md border border-border bg-muted/50 px-3 text-sm">
-                      <option value="">{copy.noLinkedGoal}</option>
-                      {goalRows.map((goal) => <option key={goal.id} value={goal.id}>{goal.title}</option>)}
-                    </select>
-                    <Button className="w-full" variant="outline" onClick={() => createProject.mutate({ title: projectTitle, goalId: projectGoalId || null, color: "#7FB5D6" })} disabled={!projectTitle.trim()}><Plus className="mr-2 h-4 w-4" />{language === "zh" ? "创建项目（行星）" : "Create project (planet)"}</Button>
-                  </CardContent>
-                </Card>
-
                 {/* 已创建项目列表 */}
                 <Card className="border-border bg-card/50">
-                  <CardHeader className="pb-2"><CardTitle className="text-base">{copy.project}</CardTitle></CardHeader>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">{copy.project}</CardTitle>
+                    <CardDescription>{language === "zh" ? "在「我的宇宙」创建目标与项目" : "Create goals & projects in My Universe"}</CardDescription>
+                  </CardHeader>
                   <CardContent className="space-y-2">
                     {projectRows.length === 0 ? (
                       <p className="text-xs text-muted-foreground text-center py-4">{language === "zh" ? "暂无项目，创建第一个行星吧" : "No projects yet. Create your first planet."}</p>
@@ -418,14 +421,69 @@ export default function Home() {
                 projects={projectRows.map((p) => ({ id: p.id, title: p.title, goalId: p.goalId }))}
                 tasks={taskRows.map((t) => ({ id: t.id, projectId: t.projectId, status: t.status }))}
                 onSelectGoal={setSelectedGoal}
+                onSelectGoalDetail={handleSelectGoalDetail}
+                destroyingGoalId={destroyingGoalId}
+                onDestroyComplete={handleDestroyComplete}
               />
-              {/* 编辑按钮悬浮在卡片上 */}
-              <div className="pointer-events-none absolute bottom-3 right-3 flex gap-2">
-                <Button size="sm" variant="secondary" className="pointer-events-auto" onClick={() => setView("today")}>
-                  <Pencil className="h-3.5 w-3.5 mr-1" />{language === "zh" ? "管理目标和项目" : "Manage goals"}
-                </Button>
-              </div>
+              {/* 恒星操作面板：定位在恒星投影位置附近 */}
+              {goalSelection && !destroyingGoalId && (
+                <div
+                  className="absolute z-20 w-52 rounded-2xl border border-white/15 bg-[#101c3a]/95 p-3 shadow-2xl backdrop-blur"
+                  style={{
+                    left: Math.min(Math.max(goalSelection.screen.x - 104, 8), 9999),
+                    top: Math.min(goalSelection.screen.y + 18, 340),
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="mb-2 flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: goalSelection.color, boxShadow: `0 0 8px 2px ${goalSelection.color}66` }} />
+                    <p className="truncate text-sm font-medium text-white">{goalSelection.title}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      className="h-8 flex-1 border-0 bg-white/10 text-white hover:bg-white/20"
+                      onClick={() => {
+                        handleEditGoal(goalRows.find((g) => g.id === goalSelection.id));
+                        setGoalSelection(null);
+                      }}
+                    >
+                      <Pencil className="mr-1 h-3.5 w-3.5" />{language === "zh" ? "编辑" : "Edit"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="h-8 flex-1 border-0 bg-red-500/20 text-red-300 hover:bg-red-500/40 hover:text-red-200"
+                      onClick={() => {
+                        setDestroyConfirm({ type: "goal", id: goalSelection.id, title: goalSelection.title });
+                        setGoalSelection(null);
+                      }}
+                    >
+                      <Trash2 className="mr-1 h-3.5 w-3.5" />{language === "zh" ? "摧毁" : "Destroy"}
+                    </Button>
+                  </div>
+                  <button className="mt-2 w-full text-center text-[11px] text-white/40 hover:text-white/70" onClick={() => { setSelectedGoal(goalSelection.id); setGoalSelection(null); }}>
+                    {language === "zh" ? "聚焦此主线" : "Focus this path"}
+                  </button>
+                </div>
+              )}
+              {/* 点击空白处关闭面板 */}
+              {goalSelection && <div className="absolute inset-0 z-10" onClick={() => setGoalSelection(null)} />}
             </div>
+
+            {/* 创建人生主线（从周视图迁移至此） */}
+            <Card className="border-border bg-card/50">
+              <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Target className="h-4 w-4" />{language === "zh" ? "创建人生主线" : "Shape the path"}</CardTitle></CardHeader>
+              <CardContent className="space-y-2">
+                <Input value={goalTitle} onChange={(e) => setGoalTitle(e.target.value)} placeholder={copy.enterGoalTitle} className="border-border bg-muted/50" />
+                <Button className="w-full" variant="outline" onClick={() => createGoal.mutate({ title: goalTitle, color: "#6EA8FE" })} disabled={!goalTitle.trim()}><Target className="mr-2 h-4 w-4" />{language === "zh" ? "创建目标（恒星）" : "Create goal (star)"}</Button>
+                <Input value={projectTitle} onChange={(e) => setProjectTitle(e.target.value)} placeholder={copy.enterProjectTitle} className="border-border bg-muted/50" />
+                <select value={projectGoalId} onChange={(e) => setProjectGoalId(e.target.value)} className="h-9 w-full rounded-md border border-border bg-muted/50 px-3 text-sm">
+                  <option value="">{copy.noLinkedGoal}</option>
+                  {goalRows.map((goal) => <option key={goal.id} value={goal.id}>{goal.title}</option>)}
+                </select>
+                <Button className="w-full" variant="outline" onClick={() => createProject.mutate({ title: projectTitle, goalId: projectGoalId || null, color: "#7FB5D6" })} disabled={!projectTitle.trim()}><Plus className="mr-2 h-4 w-4" />{language === "zh" ? "创建项目（行星）" : "Create project (planet)"}</Button>
+              </CardContent>
+            </Card>
 
             <div className="grid gap-3 md:grid-cols-3">
               <Card className="border-primary/20 bg-card/55">
@@ -558,6 +616,32 @@ export default function Home() {
             onClose={() => setEditingProject(null)}
             onSave={handleSaveProject}
           />
+        )}
+        {/* 摧毁确认弹窗 */}
+        {destroyConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 p-4 backdrop-blur-sm" onClick={() => setDestroyConfirm(null)}>
+            <div className="w-full max-w-sm rounded-2xl border border-red-500/30 bg-card p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <div className="mb-3 flex items-center gap-2">
+                <span className="grid h-9 w-9 place-items-center rounded-full bg-red-500/15"><Trash2 className="h-4 w-4 text-red-500" /></span>
+                <h2 className="text-base font-semibold">{destroyConfirm.type === "goal" ? (language === "zh" ? "摧毁恒星" : "Destroy star") : (language === "zh" ? "摧毁行星" : "Destroy planet")}</h2>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {destroyConfirm.type === "goal"
+                  ? language === "zh"
+                    ? `确定摧毁恒星「${destroyConfirm.title}」吗？其行星将脱离主线（项目与任务数据保留），此操作不可撤销。`
+                    : `Destroy the star "${destroyConfirm.title}"? Its planets will detach (projects & tasks are kept). This cannot be undone.`
+                  : language === "zh"
+                    ? `确定摧毁行星「${destroyConfirm.title}」吗？其卫星将脱离项目（任务数据保留），此操作不可撤销。`
+                    : `Destroy the planet "${destroyConfirm.title}"? Its moons will detach (tasks are kept). This cannot be undone.`}
+              </p>
+              <div className="mt-5 flex justify-end gap-2">
+                <Button size="sm" variant="outline" onClick={() => setDestroyConfirm(null)}>{copy.cancel}</Button>
+                <Button size="sm" className="border-0 bg-red-600 text-white hover:bg-red-700" onClick={handleConfirmDestroy} disabled={deleteGoalMut.isPending || deleteProjectMut.isPending}>
+                  <Trash2 className="mr-1.5 h-3.5 w-3.5" />{language === "zh" ? "确认摧毁" : "Destroy"}
+                </Button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>

@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, eq, gte, isNull, lt, or } from "drizzle-orm";
+import { and, asc, eq, gte, isNull, lt, or, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import {
   activeTimers,
@@ -15,9 +15,33 @@ import {
 } from "../drizzle/schema";
 import { getDb } from "./db";
 
+/**
+ * 启动后首次访问数据库时执行的幂等 schema 修补。
+ * Drizzle schema 与线上表结构可能存在漂移（手动迁移 db:push 不随部署执行），
+ * 这里用 ALTER TABLE ... 容错补齐，保证 SELECT/UPDATE 不会因缺列而 500。
+ */
+let schemaPatch: Promise<void> | null = null;
+
+async function patchSchema(): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  // projects.color：2026-09-01 新增（行星颜色自定义）
+  try {
+    await db.execute(sql`ALTER TABLE projects ADD COLUMN color VARCHAR(16) NOT NULL DEFAULT '#7FB5D6' AFTER status`);
+  } catch {
+    /* 列已存在或其他环境差异，忽略 */
+  }
+}
+
 export async function requireDb() {
   const db = await getDb();
   if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "云端数据服务暂不可用" });
+  if (!schemaPatch) {
+    schemaPatch = patchSchema().catch(() => {
+      schemaPatch = null; // 失败可重试
+    });
+  }
+  await schemaPatch;
   return db;
 }
 

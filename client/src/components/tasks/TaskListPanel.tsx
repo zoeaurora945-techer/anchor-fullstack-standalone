@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Check, ChevronDown, ChevronRight } from "lucide-react";
 import { t, type Language } from "@/lib/i18n";
+import { formatShortDate, formatTime } from "@/lib/utils";
 import type { EditableTask } from "./TaskEditorDialog";
 
 type ListTask = EditableTask & {
@@ -69,7 +70,7 @@ export function TaskListPanel({
           {task.title}
         </p>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          {task.dueAt ? new Date(task.dueAt).toLocaleString() : copy.noTime}
+          {task.dueAt ? `${formatShortDate(task.dueAt)} ${formatTime(task.dueAt)}` : copy.noTime}
         </p>
       </div>
     </div>
