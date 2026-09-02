@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { Clock3, Target, Play, Pause, CheckCircle2, Star, Edit2, Sparkles, Orbit, UsersRound, ShieldCheck, Cloud, TimerReset, Stars, Plus, Check, X, Pencil, ZoomIn, ZoomOut, MoveHorizontal, ChevronLeft, ChevronRight, Trash2, Mic } from "lucide-react";
+import { Clock3, Target, Play, Pause, CheckCircle2, Star, Edit2, Sparkles, Orbit, UsersRound, ShieldCheck, Cloud, TimerReset, Stars, Plus, Check, X, Pencil, ZoomIn, ZoomOut, MoveHorizontal, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import { t, type Language } from "@/lib/i18n";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { trpc } from "@/lib/trpc";
@@ -52,9 +52,6 @@ export default function Home() {
   const [destroyConfirm, setDestroyConfirm] = useState<{ type: "goal" | "project"; id: string; title: string } | null>(null);
   const [destroyingGoalId, setDestroyingGoalId] = useState<string | null>(null);
   const [boardMode, setBoardMode] = useState<"quadrant" | "list">("quadrant");
-  const [isRecording, setIsRecording] = useState(false);
-  const recognitionRef = useRef<any>(null);
-  const [captureText, setCaptureText] = useState("");
   const copy = t(language);
   const utils = trpc.useUtils();
   const profile = trpc.sync.profile.useQuery(undefined, { enabled: Boolean(user) });
@@ -80,7 +77,6 @@ export default function Home() {
   const updateProfile = trpc.sync.updateProfile.useMutation({ onSuccess: () => profile.refetch() });
   const requestFriend = trpc.social.requestFriend.useMutation({ onSuccess: () => { setFriendId(""); friendships.refetch(); } });
   const setVisibility = trpc.social.setVisibility.useMutation({ onSuccess: () => { profile.refetch(); utils.planning.goals.invalidate(); } });
-  const capture = trpc.ai.captureText.useMutation({ onSuccess: () => { setCaptureText(""); utils.task.list.invalidate(); } });
   const createReport = trpc.time.report.useMutation({ onSuccess: () => utils.time.week.invalidate() });
 
   const taskRows = tasks.data ?? [];
@@ -147,21 +143,6 @@ export default function Home() {
     setGoalSelection(null);
   }, []);
 
-  const startRecording = () => {
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) { alert(language === "zh" ? "浏览器不支持语音识别，请用 Chrome。" : "Use Chrome for speech recognition."); return; }
-    const rec = new SR();
-    rec.lang = language === "zh" ? "zh-CN" : "en-US";
-    rec.interimResults = false;
-    rec.maxAlternatives = 1;
-    rec.onresult = (e: any) => { const text = e.results[0][0].transcript; capture.mutate({ text: text.trim(), language }); };
-    rec.onerror = () => setIsRecording(false);
-    rec.onend = () => setIsRecording(false);
-    rec.start();
-    recognitionRef.current = rec;
-    setIsRecording(true);
-  };
-  const stopRecording = () => { if (recognitionRef.current) { recognitionRef.current.stop(); recognitionRef.current = null; } setIsRecording(false); };
 
   if (loading) return <div className="grid min-h-screen place-items-center bg-background text-muted-foreground"><Stars className="h-7 w-7 animate-pulse" /></div>;
   if (!user) return (
@@ -236,13 +217,6 @@ export default function Home() {
                   <Input value={newTask} onChange={(e) => setNewTask(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addTask()} placeholder={language === "zh" ? "例如：今天 17:00 前完成项目方案" : "e.g. Finish project proposal by 5pm"} className="border-border bg-card/50" />
                   <Input type="datetime-local" value={newDue} onChange={(e) => setNewDue(e.target.value)} className="border-border bg-card/50" />
                   <Button onClick={addTask} disabled={createTask.isPending}><Plus className="mr-2 h-4 w-4" />{copy.addTask}</Button>
-                </div>
-
-                <div className="mt-3 flex gap-2">
-                  <button onClick={startRecording} disabled={isRecording} className={cn("flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition", isRecording ? "border-red-400 bg-red-500/10 text-red-500 animate-pulse" : "border-border text-muted-foreground hover:bg-muted/60")}>
-                    <Mic className="h-3.5 w-3.5" />{isRecording ? (language === "zh" ? "录音中…" : "Recording…") : copy.record}
-                  </button>
-                  {isRecording && <button onClick={stopRecording} className="rounded-full border border-border bg-muted/60 px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted">{copy.stop}</button>}
                 </div>
 
                 <div className="mt-4 flex justify-end"><BoardModeSwitch mode={boardMode} onModeChange={setBoardMode} language={language} /></div>
