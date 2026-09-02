@@ -446,7 +446,7 @@ export default function Home() {
               <AnchorGalaxy
                 goals={goalRows.map((g) => ({ id: g.id, title: g.title, color: g.color }))}
                 projects={projectRows.map((p) => ({ id: p.id, title: p.title, goalId: p.goalId }))}
-                tasks={taskRows.map((t) => ({ id: t.id, projectId: t.projectId, status: t.status }))}
+                tasks={taskRows.map((t) => ({ id: t.id, projectId: t.projectId, status: t.status, dueAt: t.dueAt, firstBreachedAt: t.firstBreachedAt }))}
                 onSelectGoal={setSelectedGoal}
                 onSelectGoalDetail={handleSelectGoalDetail}
                 destroyingGoalId={destroyingGoalId}

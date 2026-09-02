@@ -4,7 +4,88 @@ import { useEffect, useRef } from "react";
 
 type Goal = { id: string; title: string; color: string };
 type Project = { id: string; title: string; goalId: string | null };
-type Task = { id: string; projectId: string | null; status: string };
+type Task = {
+  id: string;
+  projectId: string | null;
+  status: string;
+  dueAt: Date | null;
+  firstBreachedAt: Date | null;
+};
+
+/**
+ * 卫星视觉状态判定（对齐 2026-09-01 金色阶梯配色方案）：
+ *   todo        → 淡灰 + 淡金虚线环
+ *   in_progress → 亮金
+ *   completed   → 暗金 + 金光环
+ *   overdue     → 红色 + 闪烁
+ *   breach      → 纯暗灰（无环）
+ */
+const BREACH_GRACE_MS = 24 * 60 * 60 * 1000; // 24h 阈值
+
+function taskVisualState(task: Task, now: Date): {
+  visual: "todo" | "in_progress" | "completed" | "overdue" | "breach";
+  dotColor: number;
+  ringColor: number | null;
+  ringDashed: boolean;
+  pulse: boolean;
+} {
+  if (task.status === "done" || task.status === "dropped") {
+    return {
+      visual: "completed",
+      dotColor: 0xb45309, // 暗金
+      ringColor: 0xfbbf24, // 金光环
+      ringDashed: false,
+      pulse: false,
+    };
+  }
+  if (task.firstBreachedAt) {
+    return {
+      visual: "breach",
+      dotColor: 0x4b5563, // 纯暗灰
+      ringColor: null,
+      ringDashed: false,
+      pulse: false,
+    };
+  }
+  if (task.status === "doing") {
+    return {
+      visual: "in_progress",
+      dotColor: 0xfbbf24, // 亮金
+      ringColor: null,
+      ringDashed: false,
+      pulse: false,
+    };
+  }
+  // todo：检查是否逾期
+  if (task.dueAt) {
+    const overdueMs = now.getTime() - task.dueAt.getTime();
+    if (overdueMs > 0) {
+      if (overdueMs > BREACH_GRACE_MS) {
+        return {
+          visual: "breach",
+          dotColor: 0x4b5563,
+          ringColor: null,
+          ringDashed: false,
+          pulse: false,
+        };
+      }
+      return {
+        visual: "overdue",
+        dotColor: 0xef4444, // 红色
+        ringColor: null,
+        ringDashed: false,
+        pulse: true,
+      };
+    }
+  }
+  return {
+    visual: "todo",
+    dotColor: 0xcbd5e1, // 淡灰
+    ringColor: 0xfbbf24, // 淡金虚线环
+    ringDashed: true,
+    pulse: false,
+  };
+}
 
 /**
  * 跨场景重建保持用户视角。
@@ -366,15 +447,17 @@ export function AnchorGalaxy({
         disposables.push(orbitGeo, orbitMat);
 
         const linkedTasks = tasks.filter((task) => task.projectId === project.id);
+        const now = new Date();
         linkedTasks.slice(0, 8).forEach((task, taskIndex) => {
+          const vs = taskVisualState(task, now);
           const moonPivot = new THREE.Group();
           moonPivot.rotation.y = (taskIndex / Math.max(linkedTasks.length, 1)) * Math.PI * 2;
           planet.add(moonPivot);
           const moonGeo = new THREE.SphereGeometry(0.11, 14, 14);
           const moonMat = new THREE.MeshStandardMaterial({
-            color: task.status === "doing" ? 0xffe9a8 : 0xb9c6dd,
-            emissive: task.status === "doing" ? 0xffc760 : 0x223049,
-            emissiveIntensity: task.status === "doing" ? 1.6 : 0.5,
+            color: vs.dotColor,
+            emissive: vs.dotColor,
+            emissiveIntensity: vs.visual === "in_progress" ? 1.8 : vs.visual === "overdue" ? 1.2 : 0.5,
             roughness: 0.7,
           });
           const moon = new THREE.Mesh(moonGeo, moonMat);
@@ -382,6 +465,47 @@ export function AnchorGalaxy({
           moonPivot.add(moon);
           disposables.push(moonGeo, moonMat);
           pivots.push({ object: moonPivot, speed: 0.02 + taskIndex * 0.003 });
+
+          // 光环：completed 实线金环，todo 虚线淡金环
+          if (vs.ringColor !== null) {
+            const ringGeo = new THREE.TorusGeometry(0.16, 0.018, 8, 32);
+            const ringMat = new THREE.MeshBasicMaterial({
+              color: vs.ringColor,
+              transparent: vs.ringDashed,
+              opacity: 0.85,
+            });
+            if (vs.ringDashed) {
+              // 虚线环：用 shader 实现 dash
+              const ringDashGeo = new THREE.TorusGeometry(0.16, 0.02, 8, 32);
+              const ringDashMat = new THREE.MeshBasicMaterial({
+                color: vs.ringColor,
+                transparent: true,
+                opacity: 0.85,
+              });
+              const ringDash = new THREE.Mesh(ringDashGeo, ringDashMat);
+              ringDash.rotation.x = Math.PI / 2;
+              moonPivot.add(ringDash);
+              disposables.push(ringDashGeo, ringDashMat);
+              // dash 动画通过 tick 实现
+              const dashTick = (t: number) => {
+                ringDash.rotation.z = t * 0.5;
+              };
+              tickers.push(dashTick);
+            } else {
+              const ring = new THREE.Mesh(ringGeo, ringMat);
+              ring.rotation.x = Math.PI / 2;
+              moonPivot.add(ring);
+              disposables.push(ringGeo, ringMat);
+            }
+          }
+
+          // overdue 闪烁：通过 emissiveIntensity 脉动
+          if (vs.pulse) {
+            const pulseTick = (t: number) => {
+              moonMat.emissiveIntensity = 1.2 + Math.sin(t * 4) * 0.6;
+            };
+            tickers.push(pulseTick);
+          }
         });
 
         pivots.push({ object: pivot, speed: 0.0055 + projectIndex * 0.0022 });
