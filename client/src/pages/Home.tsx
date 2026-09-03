@@ -358,6 +358,10 @@ export default function Home() {
                     tasks: taskRows
                       .filter((t) => t.projectId === p.id)
                       .map((t) => ({ id: t.id, status: t.status, dueAt: t.dueAt ? new Date(t.dueAt).toISOString() : null, createdAt: t.createdAt ? new Date(t.createdAt).toISOString() : null, doneAt: t.doneAt ? new Date(t.doneAt).toISOString() : null, estimatedMinutes: t.estimatedMinutes, title: t.title })),
+                    onTaskClick: (task) => {
+                      const found = taskRows.find((x) => x.id === task.id);
+                      if (found) setEditingTask(found);
+                    },
                   }))}
                   language={language}
                 />
