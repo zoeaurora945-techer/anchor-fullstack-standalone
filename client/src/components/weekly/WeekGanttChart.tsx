@@ -9,20 +9,31 @@ import { formatShortDate } from "@/lib/utils";
 
 // ─── 类型 ────────────────────────────────────────────────────────────────────
 
-export type GanttProject = {
+/** 扁平任务（替代原来的 GanttProject 嵌套结构） */
+export type FlatTask = {
+  id: string;
+  title: string;
+  status: string;
+  dueAt: string | null;
+  createdAt: string | null;
+  doneAt: string | null;
+  estimatedMinutes: number | null;
+  projectId: string | null;
+  /** 项目颜色（用于任务条着色） */
+  projectColor?: string;
+  /** 项目标题（用于 tooltip） */
+  projectTitle?: string;
+};
+
+/** 项目进度（用于甘特图下方进度条区域） */
+export type ProjectProgress = {
   id: string;
   title: string;
   color: string;
   status: string;
-  tasks: Array<{
-    id: string;
-    title: string;
-    status: string;
-    dueAt: string | null;
-    createdAt: string | null;
-    doneAt: string | null;
-    estimatedMinutes: number | null;
-  }>;
+  totalTasks: number;
+  doneTasks: number;
+  progress: number;
 };
 
 // ─── 工具函数 ─────────────────────────────────────────────────────────────────
@@ -44,47 +55,6 @@ function buildDayGrid(weekStart: Date): Array<{ label: string; date: Date; isWee
     d.setDate(d.getDate() + i);
     return { label: zh[d.getDay()], date: d, isWeekend: d.getDay() === 0 || d.getDay() === 6 };
   });
-}
-
-/** 根据时间重叠分配 Y 行（同一项目内多个任务不同时占同一行）*/
-function assignLanes(tasks: GanttProject["tasks"]): number[] {
-  if (tasks.length <= 1) return tasks.map(() => 0);
-  const sorted = tasks.map((_, i) => i).sort((a, b) => {
-    const sa = slotOf(tasks[a]);
-    const sb = slotOf(tasks[b]);
-    return (sa.start ?? 0) - (sb.start ?? 0);
-  });
-  const lanes: number[] = new Array(tasks.length).fill(0);
-  const active: Array<{ end: number; lane: number }> = [];
-  for (const idx of sorted) {
-    const s = slotOf(tasks[idx]);
-    const start = s.start ?? 0;
-    // 找第一个不重叠的 lane
-    let lane = 0;
-    const alive = active.filter((a) => a.end > start);
-    // 重新计算：从 0 开始找空闲 lane
-    const usedLanes = new Set(alive.map((a) => a.lane));
-    while (usedLanes.has(lane)) lane++;
-    lanes[idx] = lane;
-    // 把旧 active 里已过期的去掉，加入新的
-    const kept = active.filter((a) => a.end > start);
-    kept.push({ end: s.end ?? 0, lane });
-    // 重排
-    kept.sort((a, b) => a.end - b.end);
-    active.length = 0;
-    active.push(...kept);
-  }
-  return lanes;
-}
-
-function slotOf(t: GanttProject["tasks"][number]) {
-  const created = t.createdAt ? new Date(t.createdAt).getTime() : null;
-  const done = t.doneAt ? new Date(t.doneAt).getTime() : null;
-  const due = t.dueAt ? new Date(t.dueAt).getTime() : null;
-  let start: number | null = created ?? (due ?? null);
-  let end: number | null = done ?? due ?? (start !== null ? start + DAY_MS : null);
-  if (end && end < (start ?? 0)) end = (start ?? 0) + DAY_MS;
-  return { start, end };
 }
 
 // ─── 状态颜色 ─────────────────────────────────────────────────────────────────
@@ -113,14 +83,16 @@ const STATUS_LABEL: Record<string, string> = {
 // ─── 主组件 ───────────────────────────────────────────────────────────────────
 
 export function WeekGanttChart({
+  tasks,
   projects,
   language,
   onEditTask,
   onUpdateDue,
 }: {
-  projects: GanttProject[];
+  tasks: FlatTask[];
+  projects: ProjectProgress[];
   language: Language;
-  onEditTask?: (task: GanttProject["tasks"][number]) => void;
+  onEditTask?: (task: FlatTask) => void;
   onUpdateDue?: (taskId: string, newDueAt: string) => void;
 }) {
   const copy = t(language);
@@ -162,7 +134,7 @@ export function WeekGanttChart({
     setDragging(false);
   }, []);
 
-  // 拖拽改截止时间 - 全局监听 mouseup
+  // 拖拽改截止时间
   const handleResizeStart = useCallback((e: React.MouseEvent, taskId: string, originalDue: string) => {
     e.stopPropagation();
     setResizingTask({ id: taskId, startClientX: e.clientX, originalDue });
@@ -174,7 +146,6 @@ export function WeekGanttChart({
     const daysShift = Math.round(dx / dayWidth);
     const originalDue = new Date(resizingTask.originalDue);
     const newDue = new Date(originalDue.getTime() + daysShift * DAY_MS);
-    // 只在工作日范围内调整（不超过窗口）
     if (newDue >= weekStart && newDue <= weekStart + 14 * DAY_MS) {
       onUpdateDue(resizingTask.id, newDue.toISOString());
     }
@@ -196,34 +167,17 @@ export function WeekGanttChart({
 
   const scrollToToday = useCallback(() => setScrollX(Math.max(0, todayIdx * dayWidth - 200)), [todayIdx, dayWidth]);
 
-  const groupByStatus = (tasks: GanttProject["tasks"]) => {
-    const groups: Record<string, { count: number; totalMinutes: number }> = {};
-    tasks.forEach((t) => {
-      const s = t.status ?? "todo";
-      if (!groups[s]) groups[s] = { count: 0, totalMinutes: 0 };
-      groups[s].count++;
-      groups[s].totalMinutes += t.estimatedMinutes ?? 0;
+  // 任务按创建时间排序
+  const sortedTasks = useMemo(() => {
+    return [...tasks].sort((a, b) => {
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return aTime - bTime;
     });
-    return groups;
-  };
+  }, [tasks]);
 
-  // 每个项目内任务分配 Y 行
-  const laneMap = useMemo(() => {
-    const map: Record<string, number[]> = {};
-    for (const proj of projects) {
-      map[proj.id] = assignLanes(proj.tasks);
-    }
-    return map;
-  }, [projects]);
-
-  const maxLanesPerProject = useMemo(() => {
-    let max = 1;
-    for (const ids of Object.values(laneMap)) max = Math.max(max, ...ids.map((l) => l + 1));
-    return max;
-  }, [laneMap]);
-
-  const rowHeight = 44;
-  const rowGap = 4;
+  const rowHeight = 36;
+  const rowGap = 2;
 
   return (
     <div className="space-y-3">
@@ -278,10 +232,10 @@ export function WeekGanttChart({
         </div>
       </div>
 
-      {/* ── 甘特图主体 ── */}
+      {/* ── 甘特图主体（扁平任务列表）── */}
       <div
         className="relative overflow-hidden rounded-xl border border-border bg-card"
-        style={{ height: Math.max(projects.length * (rowHeight + rowGap) + 48, 120) }}
+        style={{ height: Math.max(sortedTasks.length * (rowHeight + rowGap) + 40, 120) }}
       >
         <div
           className="absolute inset-0"
@@ -322,115 +276,80 @@ export function WeekGanttChart({
               />
             )}
 
-            {/* 项目行 */}
-            {projects.map((project, pi) => {
-              const group = groupByStatus(project.tasks);
-              const totalMinutes = project.tasks.reduce((sum, t) => sum + (t.estimatedMinutes ?? 0), 0) || 1;
-              const completedMinutes = project.tasks.filter((t) => t.status === "done").reduce((sum, t) => sum + (t.estimatedMinutes ?? 0), 0);
-              const progress = Math.round((completedMinutes / totalMinutes) * 100);
-              const lanes = laneMap[project.id] ?? [];
-              const maxLane = Math.max(...lanes, 0);
-              const projectHeight = rowHeight + maxLane * 22 + rowGap;
+            {/* 扁平任务行 */}
+            {sortedTasks.map((task, ti) => {
+              const created = task.createdAt ? new Date(task.createdAt) : null;
+              const done = task.doneAt ? new Date(task.doneAt) : null;
+              const due = task.dueAt ? new Date(task.dueAt) : null;
+
+              let start: number | null = created ?? (due ?? null);
+              let end: number | null = done ?? due ?? null;
+              if (!end) end = start !== null ? start + 2 * DAY_MS : Date.now();
+              if (end < (start ?? 0)) end = (start ?? 0) + DAY_MS;
+
+              // 不在窗口内则跳过
+              if (end < windowStart || start! > windowEnd) return null;
+
+              const clampedStart = Math.max(start!, windowStart);
+              const clampedEnd = Math.min(end, windowEnd);
+              const leftPct = ((clampedStart - windowStart) / windowMs) * 100;
+              const widthPct = Math.max(((clampedEnd - clampedStart) / windowMs) * 100, 1.5);
+
+              const isDone = task.status === "done";
+              const noDue = !task.dueAt && task.status !== "done";
+              const topOffset = ti * (rowHeight + rowGap);
+
+              const startStr = formatShortDate(new Date(clampedStart));
+              const endStr = formatShortDate(new Date(clampedEnd));
+              const tip = `${task.title}${task.projectTitle ? ` · ${task.projectTitle}` : ""} · ${STATUS_LABEL[task.status] ?? task.status} · ${startStr} → ${endStr}${noDue ? "（无截止）" : ""}`;
+
+              const taskColor = task.projectColor || STATUS_COLOR[task.status] || STATUS_COLOR.todo;
 
               return (
                 <div
-                  key={project.id}
-                  className="relative border-b border-border/30"
-                  style={{ height: projectHeight }}
+                  key={task.id}
+                  className="relative border-b border-border/20"
+                  style={{ height: rowHeight }}
                 >
-                  {/* 任务条形图区域 */}
-                  <div className="absolute inset-0">
-                    {project.tasks.map((task, ti) => {
-                      const created = task.createdAt ? new Date(task.createdAt) : null;
-                      const done = task.doneAt ? new Date(task.doneAt) : null;
-                      const due = task.dueAt ? new Date(task.dueAt) : null;
-
-                      let start: number | null = created ?? (due ?? null);
-                      let end: number | null = done ?? due ?? null;
-                      if (!end) end = start !== null ? start + 2 * DAY_MS : Date.now();
-                      if (end < (start ?? 0)) end = (start ?? 0) + DAY_MS;
-
-                      // 不在窗口内则跳过
-                      if (end < windowStart || start! > windowEnd) return null;
-
-                      const clampedStart = Math.max(start!, windowStart);
-                      const clampedEnd = Math.min(end, windowEnd);
-                      const leftPct = ((clampedStart - windowStart) / windowMs) * 100;
-                      const widthPct = Math.max(((clampedEnd - clampedStart) / windowMs) * 100, 1.5);
-
-                      const isDone = task.status === "done";
-                      const noDue = !task.dueAt && task.status !== "done";
-                      const lane = lanes[ti] ?? 0;
-                      const topOffset = lane * 22;
-
-                      const startStr = formatShortDate(new Date(clampedStart));
-                      const endStr = formatShortDate(new Date(clampedEnd));
-                      const tip = `${task.title} · ${STATUS_LABEL[task.status] ?? task.status} · ${startStr} → ${endStr}${noDue ? "（无截止）" : ""}`;
-
-                      return (
-                        <div
-                          key={task.id}
-                          className={cn(
-                            "absolute top-0 h-5 rounded text-[9px] font-medium text-white flex items-center px-1 overflow-hidden cursor-pointer transition-opacity hover:opacity-90",
-                            STATUS_BG[task.status] ?? STATUS_BG.todo,
-                            noDue && "border-dashed opacity-75",
-                          )}
-                          style={{
-                            left: `${leftPct}%`,
-                            width: `${widthPct}%`,
-                            top: `${topOffset + 2}px`,
-                            backgroundColor: isDone ? undefined : STATUS_COLOR[task.status] ?? STATUS_COLOR.todo,
-                            borderRight: noDue ? "3px dashed var(--ring)" : undefined,
-                          }}
-                          title={tip}
-                          onClick={() => onEditTask?.(task)}
-                          draggable={!noDue}
-                        >
-                          {/* 拖拽改截止时间手柄（右端） */}
-                          {!noDue && (
-                            <div
-                              className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize bg-white/25 hover:bg-white/50 rounded-r transition-colors"
-                              onMouseDown={(e) => handleResizeStart(e, task.id, task.dueAt!)}
-                              title={language === "zh" ? "拖拽调整截止时间" : "Drag to adjust due date"}
-                            />
-                          )}
-                          <span className="truncate pr-2">{task.title}</span>
-                          {isDone && <span className="ml-0.5 shrink-0">✓</span>}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* 项目名称 + 进度覆盖层 */}
+                  {/* 任务名称 */}
                   <div
-                    className="absolute left-0 top-0 z-10 flex items-center gap-1.5 px-2"
-                    style={{ width: 140 * zoom, height: projectHeight, background: "linear-gradient(90deg, var(--card) 72%, transparent)" }}
-                    title={project.title}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-foreground truncate max-w-[140px]"
+                    title={task.title}
                   >
-                    <div
-                      className="h-2.5 w-2.5 rounded-full shrink-0"
-                      style={{ backgroundColor: project.color || "#60a5fa" }}
-                    />
-                    <span className="truncate text-xs font-medium">{project.title}</span>
-                  </div>
-                  <div className="absolute left-2 bottom-0.5 z-10 flex items-center gap-1.5" style={{ width: 140 * zoom }}>
-                    <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
-                      <div
-                        className="h-full rounded-full transition-all"
-                        style={{ width: `${progress}%`, backgroundColor: project.color || "#60a5fa" }}
-                      />
-                    </div>
-                    <span className="text-[10px] text-muted-foreground">{progress}%</span>
+                    {task.title.length > 12 ? task.title.slice(0, 12) + "…" : task.title}
                   </div>
 
-                  {/* 状态图例（含 dropped） */}
-                  <div className="absolute right-2 top-0 z-10 flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                    {Object.entries(group).map(([status, data]) => (
-                      <span key={status} className="flex items-center gap-0.5" title={`${STATUS_LABEL[status] ?? status}: ${data.count}`}>
-                        <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: STATUS_COLOR[status] }} />
-                        {data.count}
-                      </span>
-                    ))}
+                  {/* 任务条形图 */}
+                  <div
+                    className={cn(
+                      "absolute top-1/2 -translate-y-1/2 h-5 rounded text-[9px] font-medium text-white flex items-center px-1 overflow-hidden cursor-pointer transition-opacity hover:opacity-90",
+                      STATUS_BG[task.status] ?? STATUS_BG.todo,
+                      noDue && "border-dashed opacity-75",
+                    )}
+                    style={{
+                      left: `${leftPct}%`,
+                      width: `${widthPct}%`,
+                      backgroundColor: isDone ? undefined : taskColor,
+                      borderRight: noDue ? "3px dashed var(--ring)" : undefined,
+                    }}
+                    title={tip}
+                    onClick={() => onEditTask?.(task)}
+                  >
+                    <span className="truncate pr-2">{task.title}</span>
+                    {isDone && <span className="ml-0.5 shrink-0">✓</span>}
+
+                    {/* 拖拽手柄（右端） */}
+                    {!noDue && (
+                      <div
+                        className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-white/40 rounded-r transition-colors"
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          if (!task.dueAt) return;
+                          handleResizeStart(e, task.id, task.dueAt);
+                        }}
+                        title={language === "zh" ? "拖拽调整截止时间" : "Drag to adjust due date"}
+                      />
+                    )}
                   </div>
                 </div>
               );
@@ -439,12 +358,47 @@ export function WeekGanttChart({
         </div>
 
         {/* 空状态 */}
-        {projects.length === 0 && (
+        {sortedTasks.length === 0 && (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            {language === "zh" ? "创建项目后，甘特图将在此显示进度" : "Create projects to see progress here"}
+            {language === "zh" ? "创建任务后，甘特图将在此显示进度" : "Create tasks to see progress here"}
           </div>
         )}
       </div>
+
+      {/* ── 项目进度条 ── */}
+      {projects.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-muted-foreground">
+            {language === "zh" ? "项目进度" : "Project Progress"}
+          </p>
+          <div className="space-y-1.5">
+            {projects.map((proj) => (
+              <div key={proj.id} className="flex items-center gap-3">
+                {/* 颜色圆点 */}
+                <div
+                  className="h-2.5 w-2.5 rounded-full shrink-0"
+                  style={{ backgroundColor: proj.color || "#60a5fa" }}
+                />
+                {/* 项目名 */}
+                <span className="text-xs text-foreground w-32 truncate" title={proj.title}>
+                  {proj.title}
+                </span>
+                {/* 进度条 */}
+                <div className="flex-1 h-1.5 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full transition-all"
+                    style={{ width: `${proj.progress}%`, backgroundColor: proj.color || "#60a5fa" }}
+                  />
+                </div>
+                {/* 完成数 */}
+                <span className="text-[10px] text-muted-foreground w-12 text-right">
+                  {proj.doneTasks}/{proj.totalTasks} ({proj.progress}%)
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── 底部图例 ── */}
       <div className="flex items-center justify-between text-xs text-muted-foreground flex-wrap gap-2">

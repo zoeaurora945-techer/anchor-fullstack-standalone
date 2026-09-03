@@ -350,15 +350,32 @@ export default function Home() {
               </CardHeader>
               <CardContent>
                 <WeekGanttChart
-                  projects={projectRows.map((p) => ({
-                    id: p.id,
-                    title: p.title,
-                    color: p.color ?? "#7FB5D6",
-                    status: p.entityStatus,
-                    tasks: taskRows
-                      .filter((t) => t.projectId === p.id)
-                      .map((t) => ({ id: t.id, status: t.status, dueAt: t.dueAt ? new Date(t.dueAt).toISOString() : null, createdAt: t.createdAt ? new Date(t.createdAt).toISOString() : null, doneAt: t.doneAt ? new Date(t.doneAt).toISOString() : null, estimatedMinutes: t.estimatedMinutes, title: t.title })),
+                  tasks={taskRows.map((t) => ({
+                    id: t.id,
+                    title: t.title,
+                    status: t.status,
+                    dueAt: t.dueAt ? new Date(t.dueAt).toISOString() : null,
+                    createdAt: t.createdAt ? new Date(t.createdAt).toISOString() : null,
+                    doneAt: t.doneAt ? new Date(t.doneAt).toISOString() : null,
+                    estimatedMinutes: t.estimatedMinutes,
+                    projectId: t.projectId,
+                    projectColor: t.projectId ? projectRows.find((p) => p.id === t.projectId)?.color : undefined,
+                    projectTitle: t.projectId ? projectRows.find((p) => p.id === t.projectId)?.title : undefined,
                   }))}
+                  projects={projectRows.map((p) => {
+                    const projTasks = taskRows.filter((t) => t.projectId === p.id);
+                    const totalTasks = projTasks.length;
+                    const doneTasks = projTasks.filter((t) => t.status === "done").length;
+                    return {
+                      id: p.id,
+                      title: p.title,
+                      color: p.color ?? "#7FB5D6",
+                      status: p.entityStatus,
+                      totalTasks,
+                      doneTasks,
+                      progress: totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0,
+                    };
+                  })}
                   language={language}
                   onEditTask={(task) => {
                     const found = taskRows.find((x) => x.id === task.id);
