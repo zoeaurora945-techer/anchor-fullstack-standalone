@@ -16,6 +16,7 @@ import { GoalEditor } from "@/components/galaxy/GoalEditor";
 import { ProjectEditor } from "@/components/galaxy/ProjectEditor";
 import { WeekGanttChart } from "@/components/weekly/WeekGanttChart";
 import { AnchorGalaxy, type GoalSelection } from "@/components/AnchorGalaxy";
+import { SubSpaceView, type SubGoal, type SubProject, type SubTask } from "@/components/galaxy/SubSpaceView";
 import { BoardModeSwitch } from "@/components/quadrant/BoardModeSwitch";
 import { TaskListPanel } from "@/components/tasks/TaskListPanel";
 import { TaskEditorDialog } from "@/components/tasks/TaskEditorDialog";
@@ -23,10 +24,11 @@ import { UniverseArchive } from "@/components/UniverseArchive";
 
 type View = "today" | "week" | "universe" | "nebula" | "settings";
 
+// 列顺序：重要紧急 → 重要不紧急 → 不重要但紧急 → 不重要不紧急
 const quadMeta = {
   q1: { tone: "border-rose-300/50 bg-rose-500/10", dot: "bg-rose-400", label: (copy: ReturnType<typeof t>) => copy.urgent },
-  q3: { tone: "border-sky-300/50 bg-sky-500/10", dot: "bg-sky-400", label: (copy: ReturnType<typeof t>) => copy.plan },
-  q2: { tone: "border-amber-300/50 bg-amber-500/10", dot: "bg-amber-400", label: (copy: ReturnType<typeof t>) => copy.delegate },
+  q2: { tone: "border-amber-300/50 bg-amber-500/10", dot: "bg-amber-400", label: (copy: ReturnType<typeof t>) => copy.plan },
+  q3: { tone: "border-sky-300/50 bg-sky-500/10", dot: "bg-sky-400", label: (copy: ReturnType<typeof t>) => copy.delegate },
   q4: { tone: "border-orange-300/40 bg-orange-500/10", dot: "bg-orange-400", label: (copy: ReturnType<typeof t>) => copy.reduce },
 } as const;
 
@@ -51,6 +53,7 @@ export default function Home() {
   const [destroyConfirm, setDestroyConfirm] = useState<{ type: "goal" | "project"; id: string; title: string } | null>(null);
   const [destroyingGoalId, setDestroyingGoalId] = useState<string | null>(null);
   const [boardMode, setBoardMode] = useState<"quadrant" | "list">("quadrant");
+  const [subSpaceGoalId, setSubSpaceGoalId] = useState<string | null>(null);
   const [captureText, setCaptureText] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const recognitionRef = useRef<any>(null);
@@ -63,7 +66,6 @@ export default function Home() {
   const week = trpc.time.week.useQuery({}, { enabled: Boolean(user) });
   const activeTimer = trpc.time.active.useQuery(undefined, { enabled: Boolean(user), refetchInterval: 30000 });
   const friendships = trpc.social.friendships.useQuery(undefined, { enabled: Boolean(user) });
-  const createTask = trpc.task.create.useMutation({ onSuccess: () => { setNewTask(""); utils.task.list.invalidate(); utils.time.week.invalidate(); } });
   const moveTask = trpc.task.move.useMutation({ onSuccess: () => utils.task.list.invalidate() });
   const finishTask = trpc.task.finish.useMutation({ onSuccess: () => { utils.task.list.invalidate(); utils.time.week.invalidate(); } });
   const updateTask = trpc.task.update.useMutation({ onSuccess: () => { utils.task.list.invalidate(); } });
@@ -100,7 +102,13 @@ export default function Home() {
     { id: "settings", icon: ShieldCheck, label: copy.settings },
   ];
 
-  const addTask = () => { if (!newTask.trim()) return; createTask.mutate({ title: newTask.trim(), dueAt: null, duePrecision: "unknown" }); };
+  // 快速输入走「自然语言解析」路径：自动拆解 项目 + 时间（+ 象限默认值）
+  const addTask = () => {
+    const v = newTask.trim();
+    if (!v) return;
+    capture.mutate({ text: v, language });
+    setNewTask("");
+  };
   const onDrop = (event: DragEvent<HTMLDivElement>, quadrant: "q1" | "q2" | "q3" | "q4") => { event.preventDefault(); const id = event.dataTransfer.getData("anchor-task"); if (id) moveTask.mutate({ id, quadrant }); };
   const handleEditTask = (task: any) => setEditingTask(task);
   const handleSaveTask = (patch: any) => updateTask.mutate(patch);
@@ -233,8 +241,8 @@ export default function Home() {
                 </div>
 
                 <div className="mt-6 grid gap-2 md:grid-cols-[1fr_auto]">
-                  <Input value={newTask} onChange={(e) => setNewTask(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addTask()} placeholder={language === "zh" ? "例如：今天 17:00 前完成项目方案" : "e.g. Finish project proposal by 5pm"} className="border-border bg-card/50" />
-                  <Button onClick={addTask} disabled={createTask.isPending}><Plus className="mr-2 h-4 w-4" />{copy.capture}</Button>
+                  <Input value={newTask} onChange={(e) => setNewTask(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addTask()} placeholder={language === "zh" ? "例如：今天下午五点跑胶" : "e.g. Run gel at 5pm today"} className="border-border bg-card/50" />
+                  <Button onClick={addTask} disabled={capture.isPending}><Plus className="mr-2 h-4 w-4" />{copy.capture}</Button>
                 </div>
 
                 <div className="mt-3 flex gap-2">
@@ -486,6 +494,15 @@ export default function Home() {
                       <Trash2 className="mr-1 h-3.5 w-3.5" />{language === "zh" ? "摧毁" : "Destroy"}
                     </Button>
                   </div>
+                  <button
+                    className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl border border-white/15 bg-gradient-to-r from-amber-400/25 to-orange-400/25 py-2 text-xs font-medium text-amber-100 transition hover:from-amber-400/40 hover:to-orange-400/40"
+                    onClick={() => {
+                      setSubSpaceGoalId(goalSelection.id);
+                      setGoalSelection(null);
+                    }}
+                  >
+                    <Orbit className="h-3.5 w-3.5" />{language === "zh" ? "进入子空间" : "Enter sub-space"}
+                  </button>
                   <button className="mt-2 w-full text-center text-[11px] text-white/40 hover:text-white/70" onClick={() => { setSelectedGoal(goalSelection.id); setGoalSelection(null); }}>
                     {language === "zh" ? "聚焦此主线" : "Focus this path"}
                   </button>
@@ -669,6 +686,31 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      {/* 子空间（恒星钻取视图）：点击恒星后进入，中央恒星=主线，行星=项目，卫星=任务 */}
+      {subSpaceGoalId && (() => {
+        const g = goalRows.find((x) => x.id === subSpaceGoalId);
+        if (!g) return null;
+        return (
+          <SubSpaceView
+            goal={{ id: g.id, title: g.title, color: g.color ?? "#6EA8FE" }}
+            projects={projectRows.map((p) => ({ id: p.id, title: p.title, color: p.color, status: p.entityStatus, goalId: p.goalId }))}
+            tasks={taskRows.map((t) => ({
+              id: t.id,
+              title: t.title,
+              status: t.status,
+              dueAt: t.dueAt ? new Date(t.dueAt).toISOString() : null,
+              projectId: t.projectId,
+              firstBreachedAt: t.firstBreachedAt ? new Date(t.firstBreachedAt).toISOString() : null,
+            }))}
+            language={language}
+            onClose={() => setSubSpaceGoalId(null)}
+            onEditGoal={(gg) => setEditingGoal(goalRows.find((x) => x.id === gg.id) ?? null)}
+            onEditProject={(pp) => setEditingProject(projectRows.find((x) => x.id === pp.id) ?? null)}
+            onEditTask={(tt) => setEditingTask(taskRows.find((x) => x.id === tt.id) ?? null)}
+          />
+        );
+      })()}
     </div>
   );
 }

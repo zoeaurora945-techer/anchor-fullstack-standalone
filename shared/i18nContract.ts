@@ -26,6 +26,7 @@ export const i18n = {
     linkGoal: "关联主线", linkProject: "关联项目",
     goalCount: "目标数", projectCount: "项目数", activeTasks: "进行中任务",
     selectGoal: "选择一条主线聚焦", selectGoalHint: "点击宇宙中的恒星，聚焦一条人生主线",
+    subSpace: "子空间", backToUniverse: "返回宇宙", subSpaceHint: "点击中央恒星编辑主线，点击行星编辑项目，点击卫星编辑任务", noPlanets: "这条主线还没有行星（项目），去宇宙里添加一个吧",
   },
   en: {
     navWorkspace: "Workspace", navArchive: "Time archive", navNebula: "Personal nebula", navDelivery: "Migration & delivery", signIn: "Sign in to continue", signOut: "Sign out",
@@ -52,6 +53,7 @@ export const i18n = {
     linkGoal: "Link to goal", linkProject: "Link to project",
     goalCount: "Goals", projectCount: "Projects", activeTasks: "Active tasks",
     selectGoal: "Select a goal to focus", selectGoalHint: "Click a star in the galaxy to focus its life path",
+    subSpace: "Sub-space", backToUniverse: "Back to universe", subSpaceHint: "Click the central star to edit the path, planets for projects, moons for tasks", noPlanets: "This path has no planets yet. Add one in the universe.",
   },
 } as const;
 

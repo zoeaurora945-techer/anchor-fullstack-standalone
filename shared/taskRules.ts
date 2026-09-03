@@ -36,8 +36,11 @@ export function resolveQuadrant(task: TaskRuleInput, now: Date, timezone: string
   if (task.status === "done" || task.status === "dropped") return null;
   if (isBreached(task, now)) return "q1";
   const urgent = task.urgencyMode === "manual" ? task.manualUrgent : isDueToday(task.dueAt, now, timezone);
-  if (task.importance === "important") return urgent ? "q1" : "q3";
-  return urgent ? "q2" : "q4";
+  // 与 routers/tasks.ts 的 QUADRANT_FLAGS 保持一致：
+  //   重要 + 紧急 => q1，重要 + 不紧急 => q2
+  //   不重要 + 紧急 => q3，不重要 + 不紧急 => q4
+  if (task.importance === "important") return urgent ? "q1" : "q2";
+  return urgent ? "q3" : "q4";
 }
 
 export function defaultTaskRule(now: Date, dueAt: Date | null, timezone: string) {
