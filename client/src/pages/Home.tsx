@@ -15,6 +15,7 @@ import { cn, formatShortDate, formatTime } from "@/lib/utils";
 import { GoalEditor } from "@/components/galaxy/GoalEditor";
 import { ProjectEditor } from "@/components/galaxy/ProjectEditor";
 import { WeekGanttChart } from "@/components/weekly/WeekGanttChart";
+import { VisibilityManager } from "@/components/VisibilityManager";
 import { AnchorGalaxy, type GoalSelection } from "@/components/AnchorGalaxy";
 import { SubSpaceView, type SubGoal, type SubProject, type SubTask } from "@/components/galaxy/SubSpaceView";
 import { BoardModeSwitch } from "@/components/quadrant/BoardModeSwitch";
@@ -80,7 +81,6 @@ export default function Home() {
   const stopTimer = trpc.time.stop.useMutation({ onSuccess: () => { activeTimer.refetch(); utils.time.week.invalidate(); } });
   const updateProfile = trpc.sync.updateProfile.useMutation({ onSuccess: () => profile.refetch() });
   const requestFriend = trpc.social.requestFriend.useMutation({ onSuccess: () => { setFriendId(""); friendships.refetch(); } });
-  const setVisibility = trpc.social.setVisibility.useMutation({ onSuccess: () => { profile.refetch(); utils.planning.goals.invalidate(); } });
   const capture = trpc.ai.captureText.useMutation({ onSuccess: () => { setCaptureText(""); utils.task.list.invalidate(); } });
   const createReport = trpc.time.report.useMutation({ onSuccess: () => utils.time.week.invalidate() });
 
@@ -357,7 +357,7 @@ export default function Home() {
                     status: p.entityStatus,
                     tasks: taskRows
                       .filter((t) => t.projectId === p.id)
-                      .map((t) => ({ id: t.id, status: t.status, dueAt: t.dueAt, estimatedMinutes: t.estimatedMinutes, title: t.title })),
+                      .map((t) => ({ id: t.id, status: t.status, dueAt: t.dueAt ? new Date(t.dueAt).toISOString() : null, createdAt: t.createdAt ? new Date(t.createdAt).toISOString() : null, doneAt: t.doneAt ? new Date(t.doneAt).toISOString() : null, estimatedMinutes: t.estimatedMinutes, title: t.title })),
                   }))}
                   language={language}
                 />
@@ -593,20 +593,7 @@ export default function Home() {
                 </div>
               </CardContent>
             </Card>
-            <Card className="border-border bg-card/60">
-              <CardHeader>
-                <CardTitle>{language === "zh" ? "隐私由你定义" : "Privacy is yours to define"}</CardTitle>
-                <CardDescription>{language === "zh" ? "默认私密。选择好友或公开时，只开放概要级的 Goal、Project 与进度，不会开放任务标题。" : "Private by default. Friends and public modes expose only Goal, Project, and progress summaries—not task titles."}</CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-3 sm:grid-cols-3">
-                {(["private", "friends", "public"] as const).map((visibility) => (
-                  <button key={visibility} onClick={() => setVisibility.mutate({ entityType: "profile", entityId: null, permission: "summary" as const })} className={cn("rounded-xl border-2 px-3 py-4 text-center transition", profile.data?.defaultVisibility === visibility ? "border-primary bg-primary/10" : "border-border hover:border-primary/40")}>
-                    <p className="text-sm font-medium">{visibility}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{copy[visibility as keyof typeof copy]}</p>
-                  </button>
-                ))}
-              </CardContent>
-            </Card>
+            <VisibilityManager language={language} />
           </section>
         )}
 

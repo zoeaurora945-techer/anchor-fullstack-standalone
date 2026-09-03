@@ -10,7 +10,15 @@ export type GanttProject = {
   title: string;
   color: string;
   status: string;
-  tasks: Array<{ id: string; status: string; dueAt: Date | null; estimatedMinutes: number | null }>;
+  tasks: Array<{
+    id: string;
+    title: string;
+    status: string;
+    dueAt: string | null;
+    createdAt: string | null;
+    doneAt: string | null;
+    estimatedMinutes: number | null;
+  }>;
 };
 
 const STATUS_COLOR: Record<string, string> = {
@@ -21,10 +29,17 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 const STATUS_BG: Record<string, string> = {
-  todo: "bg-blue-400/20 border-blue-400/40",
-  doing: "bg-amber-400/20 border-amber-400/40",
-  done: "bg-emerald-400/20 border-emerald-400/40",
+  todo: "bg-blue-400/25 border-blue-400/50",
+  doing: "bg-amber-400/25 border-amber-400/50",
+  done: "bg-emerald-400/30 border-emerald-400/60",
   dropped: "bg-slate-400/20 border-slate-400/40",
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  todo: "待办",
+  doing: "进行中",
+  done: "已完成",
+  dropped: "已放弃",
 };
 
 /** 获取指定日期所在周的周一（0=周日）*/
@@ -38,7 +53,6 @@ function getWeekStart(date: Date): Date {
 
 /** 生成 14 天网格 */
 function buildDayGrid(weekStart: Date): Array<{ label: string; date: Date; isWeekend: boolean }> {
-  const days = ["daySun", "dayMon", "dayTue", "dayWed", "dayThu", "dayFri", "daySat"];
   const zh = ["日", "一", "二", "三", "四", "五", "六"];
   return Array.from({ length: 14 }, (_, i) => {
     const d = new Date(weekStart);
@@ -46,6 +60,8 @@ function buildDayGrid(weekStart: Date): Array<{ label: string; date: Date; isWee
     return { label: zh[d.getDay()], date: d, isWeekend: d.getDay() === 0 || d.getDay() === 6 };
   });
 }
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export function WeekGanttChart({
   projects,
@@ -66,6 +82,9 @@ export function WeekGanttChart({
 
   const dayWidth = 48 * zoom;
   const totalWidth = days.length * dayWidth;
+  const windowStart = weekStart.getTime();
+  const windowEnd = weekStart.getTime() + days.length * DAY_MS;
+  const windowMs = windowEnd - windowStart;
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return;
@@ -89,7 +108,7 @@ export function WeekGanttChart({
     setScrollX(targetX);
   }, [todayIdx, dayWidth]);
 
-  const groupByStatus = (tasks: GanttProject["projects"][number]["tasks"]) => {
+  const groupByStatus = (tasks: GanttProject["tasks"]) => {
     const groups: Record<string, { count: number; totalMinutes: number }> = {};
     tasks.forEach((t) => {
       const s = t.status ?? "todo";
@@ -168,7 +187,7 @@ export function WeekGanttChart({
             )}
 
             {/* 项目行 */}
-            {projects.map((project, pi) => {
+            {projects.map((project) => {
               const group = groupByStatus(project.tasks);
               const totalMinutes = project.tasks.reduce((sum, t) => sum + (t.estimatedMinutes ?? 0), 0) || 1;
               const completedMinutes = project.tasks.filter((t) => t.status === "done").reduce((sum, t) => sum + (t.estimatedMinutes ?? 0), 0);
@@ -177,49 +196,35 @@ export function WeekGanttChart({
               return (
                 <div
                   key={project.id}
-                  className="relative flex items-center border-b border-border/30 px-2"
-                  style={{ height: 44, paddingLeft: 8 }}
+                  className="relative border-b border-border/30"
+                  style={{ height: 44 }}
                 >
-                  {/* 项目名称 + 进度 */}
-                  <div className="shrink-0 pr-2" style={{ width: 140 * zoom }}>
-                    <div className="flex items-center gap-1.5">
-                      <div
-                        className="h-2.5 w-2.5 rounded-full shrink-0"
-                        style={{ backgroundColor: project.color || "#60a5fa" }}
-                      />
-                      <span className="truncate text-xs font-medium">{project.title}</span>
-                    </div>
-                    <div className="mt-0.5 flex items-center gap-1.5">
-                      <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
-                        <div
-                          className="h-full rounded-full transition-all"
-                          style={{ width: `${progress}%`, backgroundColor: project.color || "#60a5fa" }}
-                        />
-                      </div>
-                      <span className="text-[10px] text-muted-foreground">{progress}%</span>
-                    </div>
-                  </div>
+                  {/* 任务条形图：覆盖整行，与 day 列对齐 */}
+                  <div className="absolute inset-0">
+                    {project.tasks.map((task) => {
+                      const created = task.createdAt ? new Date(task.createdAt) : null;
+                      const done = task.doneAt ? new Date(task.doneAt) : null;
+                      const due = task.dueAt ? new Date(task.dueAt) : null;
 
-                  {/* 状态图例 */}
-                  <div className="absolute right-2 top-0 flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                    {Object.entries(group).map(([status, data]) => (
-                      <span key={status} className="flex items-center gap-0.5">
-                        <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: STATUS_COLOR[status] }} />
-                        {data.count}
-                      </span>
-                    ))}
-                  </div>
+                      // 起点：创建时间；缺失则用 截止-1天 或 今天
+                      let start = created ?? (due ? new Date(due.getTime() - DAY_MS) : new Date());
+                      // 终点：完成时间；未完成则用 截止时间；再无则用 起点+2天（或今天）
+                      let end = done ?? due ?? null;
+                      if (!end) end = new Date(start.getTime() + 2 * DAY_MS);
+                      if (end.getTime() < start.getTime()) end = new Date(start.getTime() + DAY_MS);
 
-                  {/* 任务条形图 */}
-                  <div className="relative flex-1" style={{ marginLeft: 140 * zoom }}>
-                    {project.tasks.map((task, ti) => {
-                      const dueDate = task.dueAt ? new Date(task.dueAt) : null;
-                      if (!dueDate) return null;
+                      // 不在 14 天窗口内则跳过
+                      if (end.getTime() < windowStart || start.getTime() > windowEnd) return null;
 
-                      const taskStart = Math.max(0, dueDate.getTime() - (weekStart.getTime()) );
-                      const duration = 2 * 24 * 60 * 60 * 1000; // 2天宽度
-                      const leftPct = (taskStart / (days.length * 24 * 60 * 60 * 1000)) * 100;
-                      const widthPct = (duration / (days.length * 24 * 60 * 60 * 1000)) * 100;
+                      const clampedStart = Math.max(start.getTime(), windowStart);
+                      const clampedEnd = Math.min(end.getTime(), windowEnd);
+                      const leftPct = ((clampedStart - windowStart) / windowMs) * 100;
+                      const widthPct = Math.max(((clampedEnd - clampedStart) / windowMs) * 100, 1.5);
+
+                      const isDone = task.status === "done";
+                      const startStr = formatShortDate(new Date(clampedStart));
+                      const endStr = formatShortDate(new Date(clampedEnd));
+                      const tip = `${task.title} · ${STATUS_LABEL[task.status] ?? task.status} · ${startStr} → ${endStr}${isDone ? "" : due ? "" : "（无截止）"}`;
 
                       return (
                         <div
@@ -230,14 +235,47 @@ export function WeekGanttChart({
                           )}
                           style={{
                             left: `${leftPct}%`,
-                            width: `${Math.max(widthPct, 2)}%`,
+                            width: `${widthPct}%`,
+                            backgroundColor: isDone ? undefined : STATUS_COLOR[task.status] ?? STATUS_COLOR.todo,
                           }}
-                          title={`${task.title} · ${task.status}`}
+                          title={tip}
                         >
                           <span className="truncate">{task.title}</span>
+                          {isDone && <span className="ml-0.5 shrink-0">✓</span>}
                         </div>
                       );
                     })}
+                  </div>
+
+                  {/* 项目名称 + 进度：覆盖层，避免遮挡条形 */}
+                  <div
+                    className="absolute left-0 top-0 bottom-0 z-10 flex items-center gap-1.5 px-2"
+                    style={{ width: 140 * zoom, background: "linear-gradient(90deg, var(--card) 72%, transparent)" }}
+                  >
+                    <div
+                      className="h-2.5 w-2.5 rounded-full shrink-0"
+                      style={{ backgroundColor: project.color || "#60a5fa" }}
+                    />
+                    <span className="truncate text-xs font-medium">{project.title}</span>
+                  </div>
+                  <div className="absolute left-2 bottom-0.5 z-10 flex items-center gap-1.5" style={{ width: 140 * zoom }}>
+                    <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{ width: `${progress}%`, backgroundColor: project.color || "#60a5fa" }}
+                      />
+                    </div>
+                    <span className="text-[10px] text-muted-foreground">{progress}%</span>
+                  </div>
+
+                  {/* 状态图例 */}
+                  <div className="absolute right-2 top-0 z-10 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                    {Object.entries(group).map(([status, data]) => (
+                      <span key={status} className="flex items-center gap-0.5">
+                        <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: STATUS_COLOR[status] }} />
+                        {data.count}
+                      </span>
+                    ))}
                   </div>
                 </div>
               );
@@ -255,10 +293,11 @@ export function WeekGanttChart({
 
       {/* 底部说明 */}
       <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-400" />{copy.todo}</span>
-          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-400" />{copy.statusActive === "Active" ? "Doing" : "进行中"}</span>
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-400" />{language === "zh" ? "进行中" : "Doing"}</span>
           <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-400" />{copy.statusCompleted === "Completed" ? "Done" : "已完成"}</span>
+          <span className="text-[10px]">{language === "zh" ? "条=创建→完成（未完成以截止时间为终点）" : "Bar = creation→completion (due date if unfinished)"}</span>
         </div>
         <div className="flex items-center gap-1">
           <span className="text-[10px]">{copy.ganttZoomIn}</span>
