@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { t, type Language } from "@/lib/i18n";
 import {
@@ -116,10 +116,12 @@ export function WeekGanttChart({
   projects,
   language,
   onEditTask,
+  onUpdateDue,
 }: {
   projects: GanttProject[];
   language: Language;
   onEditTask?: (task: GanttProject["tasks"][number]) => void;
+  onUpdateDue?: (taskId: string, newDueAt: string) => void;
 }) {
   const copy = t(language);
   const [zoom, setZoom] = useState(1);
@@ -127,6 +129,8 @@ export function WeekGanttChart({
   const [dragging, setDragging] = useState(false);
   const [dragStart, setDragStart] = useState(0);
   const [weekOffset, setWeekOffset] = useState(0);
+  // 拖拽改截止时间
+  const [resizingTask, setResizingTask] = useState<{ id: string; startClientX: number; originalDue: string } | null>(null);
 
   const today = useMemo(() => new Date(), []);
   const weekStart = useMemo(
@@ -147,12 +151,44 @@ export function WeekGanttChart({
     setDragStart(e.clientX - scrollX);
   }, [scrollX]);
 
+  const lastMouseX = useRef(0);
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    lastMouseX.current = e.clientX;
     if (!dragging) return;
     setScrollX(Math.max(0, e.clientX - dragStart));
   }, [dragging, dragStart]);
 
-  const handleMouseUp = useCallback(() => setDragging(false), []);
+  const handleMouseUp = useCallback(() => {
+    setDragging(false);
+  }, []);
+
+  // 拖拽改截止时间 - 全局监听 mouseup
+  const handleResizeStart = useCallback((e: React.MouseEvent, taskId: string, originalDue: string) => {
+    e.stopPropagation();
+    setResizingTask({ id: taskId, startClientX: e.clientX, originalDue });
+  }, []);
+
+  const handleResizeEnd = useCallback(() => {
+    if (!resizingTask || !onUpdateDue) return;
+    const dx = lastMouseX.current - resizingTask.startClientX;
+    const daysShift = Math.round(dx / dayWidth);
+    const originalDue = new Date(resizingTask.originalDue);
+    const newDue = new Date(originalDue.getTime() + daysShift * DAY_MS);
+    // 只在工作日范围内调整（不超过窗口）
+    if (newDue >= weekStart && newDue <= weekStart + 14 * DAY_MS) {
+      onUpdateDue(resizingTask.id, newDue.toISOString());
+    }
+    setResizingTask(null);
+  }, [resizingTask, dayWidth, weekStart, onUpdateDue]);
+
+  // 全局监听 mouseup 来结束调整大小
+  useEffect(() => {
+    const onDocMouseUp = () => {
+      if (resizingTask) handleResizeEnd();
+    };
+    document.addEventListener("mouseup", onDocMouseUp);
+    return () => document.removeEventListener("mouseup", onDocMouseUp);
+  }, [resizingTask, handleResizeEnd]);
 
   const todayIdx = useMemo(() => {
     return days.findIndex((d) => d.date.toDateString() === today.toDateString());
@@ -350,11 +386,12 @@ export function WeekGanttChart({
                           onClick={() => onEditTask?.(task)}
                           draggable={!noDue}
                         >
-                          {/* 拖拽手柄（右端小条，预留功能） */}
+                          {/* 拖拽改截止时间手柄（右端） */}
                           {!noDue && (
                             <div
-                              className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize bg-white/30 hover:bg-white/60 rounded-r"
-                              title={language === "zh" ? "点击编辑任务" : "Click to edit task"}
+                              className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize bg-white/25 hover:bg-white/50 rounded-r transition-colors"
+                              onMouseDown={(e) => handleResizeStart(e, task.id, task.dueAt!)}
+                              title={language === "zh" ? "拖拽调整截止时间" : "Drag to adjust due date"}
                             />
                           )}
                           <span className="truncate pr-2">{task.title}</span>

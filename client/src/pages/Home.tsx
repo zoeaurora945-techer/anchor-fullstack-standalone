@@ -364,6 +364,10 @@ export default function Home() {
                     const found = taskRows.find((x) => x.id === task.id);
                     if (found) setEditingTask(found);
                   }}
+                  onUpdateDue={(taskId, newDueAt) => {
+                    const task = taskRows.find((t) => t.id === taskId);
+                    if (task) handleSaveTask({ id: taskId, dueAt: newDueAt });
+                  }}
                 />
               </CardContent>
             </Card>
@@ -455,10 +459,13 @@ export default function Home() {
             <div className="relative">
               <AnchorGalaxy
                 goals={goalRows.map((g) => ({ id: g.id, title: g.title, color: g.color }))}
-                projects={projectRows.map((p) => ({ id: p.id, title: p.title, goalId: p.goalId }))}
+                projects={projectRows.map((p) => ({ id: p.id, title: p.title, goalId: p.goalId, color: p.color, entityStatus: p.entityStatus }))}
                 tasks={taskRows.map((t) => ({ id: t.id, projectId: t.projectId, status: t.status, dueAt: t.dueAt, firstBreachedAt: t.firstBreachedAt }))}
                 onSelectGoal={setSelectedGoal}
                 onSelectGoalDetail={handleSelectGoalDetail}
+                onSelectProject={(project) => {
+                  if (project.goalId) setSubSpaceGoalId(project.goalId);
+                }}
                 destroyingGoalId={destroyingGoalId}
                 onDestroyComplete={handleDestroyComplete}
               />

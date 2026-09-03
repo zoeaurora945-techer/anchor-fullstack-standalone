@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { X, Star, Pencil } from "lucide-react";
 import { t, type Language } from "@/lib/i18n";
+import { taskVisualState, ENTITY_STATUS_LABEL, TASK_STATUS_LABEL, type TaskVisual } from "@shared/taskStatusVisual";
 
 export type SubGoal = { id: string; title: string; color: string };
 export type SubProject = { id: string; title: string; color: string | null; status: string; goalId: string | null };
@@ -13,31 +14,15 @@ export type SubTask = {
   firstBreachedAt: string | null;
 };
 
-/** 卫星（任务）状态着色，与宇宙视图金色阶梯配色一致。 */
-function satColor(task: SubTask, now: Date): { dot: string; ring: string | null; pulse: boolean } {
-  if (task.status === "done" || task.status === "dropped") return { dot: "#b45309", ring: "#fbbf24", pulse: false };
-  if (task.firstBreachedAt) return { dot: "#4b5563", ring: null, pulse: false };
-  if (task.status === "doing") return { dot: "#fbbf24", ring: null, pulse: false };
-  if (task.dueAt) {
-    const overdue = now.getTime() - new Date(task.dueAt).getTime();
-    if (overdue > 0) {
-      if (overdue > 24 * 3600 * 1000) return { dot: "#4b5563", ring: null, pulse: false };
-      return { dot: "#ef4444", ring: null, pulse: true };
-    }
-  }
-  return { dot: "#cbd5e1", ring: "#fbbf24", pulse: false };
+/** CSS 版本：返回 dot/ring/pulse 三元组，供 SubSpaceView 内联样式使用。 */
+function taskDotStyle(task: SubTask, now: Date): { dot: string; ring: string | null; pulse: boolean } {
+  const vs = taskVisualState(task, now);
+  return {
+    dot: vs.dotColor,
+    ring: vs.ringColor ?? null,
+    pulse: vs.pulse,
+  };
 }
-
-const STATUS_LABEL: Record<string, { zh: string; en: string }> = {
-  active: { zh: "进行中", en: "Active" },
-  paused: { zh: "已暂停", en: "Paused" },
-  completed: { zh: "已完成", en: "Completed" },
-  archived: { zh: "已归档", en: "Archived" },
-  doing: { zh: "进行中", en: "Doing" },
-  todo: { zh: "待办", en: "Todo" },
-  done: { zh: "已完成", en: "Done" },
-  dropped: { zh: "已放弃", en: "Dropped" },
-};
 
 const keyframes = `
 @keyframes subspace-spin { to { transform: rotate(360deg); } }
@@ -149,7 +134,7 @@ export function SubSpaceView({
               const duration = 46 + i * 9;
               const satList = tasksByProject[proj.id] ?? [];
               const projColor = proj.color ?? "#7FB5D6";
-              const projStatus = STATUS_LABEL[proj.status]?.[language] ?? proj.status;
+              const projStatus = ENTITY_STATUS_LABEL[proj.status]?.[language] ?? proj.status;
               return (
                 <div
                   key={proj.id}
@@ -193,7 +178,7 @@ export function SubSpaceView({
                       {satList.slice(0, 10).map((tk, j) => {
                         const satR = 60 + (j % 3) * 16;
                         const satDur = 13 + j * 2.5;
-                        const c = satColor(tk, now);
+                        const c = taskDotStyle(tk, now);
                         return (
                           <div
                             key={tk.id}

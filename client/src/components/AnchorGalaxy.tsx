@@ -1,9 +1,10 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useEffect, useRef } from "react";
+import { taskVisualState, type TaskVisual } from "@shared/taskStatusVisual";
 
 type Goal = { id: string; title: string; color: string };
-type Project = { id: string; title: string; goalId: string | null };
+type Project = { id: string; title: string; goalId: string | null; color?: string; entityStatus?: string };
 type Task = {
   id: string;
   projectId: string | null;
@@ -19,72 +20,14 @@ type Task = {
  *   completed   → 暗金 + 金光环
  *   overdue     → 红色 + 闪烁
  *   breach      → 纯暗灰（无环）
+ *
+ * 注意：统一逻辑由 shared/taskStatusVisual.ts 提供，此处保留向后兼容的 taskVisualState 别名。
  */
-const BREACH_GRACE_MS = 24 * 60 * 60 * 1000; // 24h 阈值
-
-function taskVisualState(task: Task, now: Date): {
-  visual: "todo" | "in_progress" | "completed" | "overdue" | "breach";
-  dotColor: number;
-  ringColor: number | null;
-  ringDashed: boolean;
-  pulse: boolean;
-} {
-  if (task.status === "done" || task.status === "dropped") {
-    return {
-      visual: "completed",
-      dotColor: 0xb45309, // 暗金
-      ringColor: 0xfbbf24, // 金光环
-      ringDashed: false,
-      pulse: false,
-    };
-  }
-  if (task.firstBreachedAt) {
-    return {
-      visual: "breach",
-      dotColor: 0x4b5563, // 纯暗灰
-      ringColor: null,
-      ringDashed: false,
-      pulse: false,
-    };
-  }
-  if (task.status === "doing") {
-    return {
-      visual: "in_progress",
-      dotColor: 0xfbbf24, // 亮金
-      ringColor: null,
-      ringDashed: false,
-      pulse: false,
-    };
-  }
-  // todo：检查是否逾期
-  if (task.dueAt) {
-    const overdueMs = now.getTime() - task.dueAt.getTime();
-    if (overdueMs > 0) {
-      if (overdueMs > BREACH_GRACE_MS) {
-        return {
-          visual: "breach",
-          dotColor: 0x4b5563,
-          ringColor: null,
-          ringDashed: false,
-          pulse: false,
-        };
-      }
-      return {
-        visual: "overdue",
-        dotColor: 0xef4444, // 红色
-        ringColor: null,
-        ringDashed: false,
-        pulse: true,
-      };
-    }
-  }
-  return {
-    visual: "todo",
-    dotColor: 0xcbd5e1, // 淡灰
-    ringColor: 0xfbbf24, // 淡金虚线环
-    ringDashed: true,
-    pulse: false,
-  };
+function taskVisualStateCompat(task: Task, now: Date): TaskVisual {
+  return taskVisualState(
+    { status: task.status, dueAt: task.dueAt, firstBreachedAt: task.firstBreachedAt },
+    now,
+  );
 }
 
 /**
@@ -217,6 +160,7 @@ export function AnchorGalaxy({
   tasks,
   onSelectGoal,
   onSelectGoalDetail,
+  onSelectProject,
   destroyingGoalId,
   onDestroyComplete,
 }: {
@@ -225,6 +169,7 @@ export function AnchorGalaxy({
   tasks: Task[];
   onSelectGoal?: (id: string) => void;
   onSelectGoalDetail?: (selection: GoalSelection) => void;
+  onSelectProject?: (project: Project) => void;
   /** 正在播放摧毁动效的恒星 id；动效播完回调 onDestroyComplete，由父组件删除数据。 */
   destroyingGoalId?: string | null;
   onDestroyComplete?: (goalId: string) => void;
@@ -412,19 +357,29 @@ export function AnchorGalaxy({
 
         const taskCount = tasks.filter((task) => task.projectId === project.id).length;
         const planetSize = 0.42 + Math.min(0.32, taskCount * 0.055);
+        const projColor = project.color ? new THREE.Color(project.color) : new THREE.Color(projectIndex % 2 ? 0x7fb5d6 : 0xd8b48c);
         const planetGeo = new THREE.SphereGeometry(planetSize, 32, 32);
         const planetMat = new THREE.MeshStandardMaterial({
-          color: projectIndex % 2 ? 0x7fb5d6 : 0xd8b48c,
+          color: projColor,
           roughness: 0.62,
           metalness: 0.12,
         });
-        planet.add(new THREE.Mesh(planetGeo, planetMat));
+        const planetMesh = new THREE.Mesh(planetGeo, planetMat);
+        planet.add(planetMesh);
         disposables.push(planetGeo, planetMat);
+
+        // 项目命中体（点击行星进入子空间）
+        const projHitGeo = new THREE.SphereGeometry(planetSize * 1.6, 16, 16);
+        const projHitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 });
+        const projHit = new THREE.Mesh(projHitGeo, projHitMat);
+        projHit.userData.projectId = project.id;
+        planet.add(projHit);
+        disposables.push(projHitGeo, projHitMat);
 
         // 大气辉光
         const atmoGeo = new THREE.SphereGeometry(planetSize * 1.32, 32, 32);
         const atmoMat = new THREE.ShaderMaterial({
-          uniforms: { uColor: { value: new THREE.Color(projectIndex % 2 ? 0x6fa8ff : 0xffc98a) } },
+          uniforms: { uColor: { value: projColor } },
           vertexShader: ATMO_VERT,
           fragmentShader: ATMO_FRAG,
           side: THREE.BackSide,
@@ -568,7 +523,19 @@ export function AnchorGalaxy({
         .intersectObjects(stars, true)
         .find((item) => item.object.userData.goalId || item.object.parent?.userData.goalId);
       const id = hit?.object.userData.goalId ?? hit?.object.parent?.userData.goalId;
-      if (!id) return;
+      if (!id) {
+        // 检查是否点击了行星（project）
+        const projHit = raycaster
+          .intersectObjects(stars, true)
+          .find((item) => item.object.userData.projectId);
+        const projId = projHit?.object.userData.projectId;
+        if (projId && onSelectProject) {
+          const proj = projects.find((p) => p.id === projId);
+          if (proj) onSelectProject(proj);
+          return;
+        }
+        return;
+      }
       const goal = goals.find((g) => g.id === id);
       if (goal && onSelectGoalDetail) {
         // 恒星世界坐标 → 屏幕投影坐标，供操作面板定位
@@ -634,7 +601,7 @@ export function AnchorGalaxy({
       renderer.dispose();
       if (renderer.domElement.parentNode === host) host.removeChild(renderer.domElement);
     };
-  }, [goals, projects, tasks, onSelectGoal, onSelectGoalDetail]);
+  }, [goals, projects, tasks, onSelectGoal, onSelectGoalDetail, onSelectProject]);
 
   /* ---------- 恒星摧毁动效：坍缩 → 爆闪 → 碎片爆散渐隐 ---------- */
   useEffect(() => {
