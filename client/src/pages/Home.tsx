@@ -395,7 +395,7 @@ export default function Home() {
                 {/* 项目进度 */}
                 <Card className="border-border bg-card/50">
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-base">{copy.project}</CardTitle>
+                    <CardTitle className="text-base">{language === "zh" ? "项目进度" : "Project Progress"}</CardTitle>
                     <CardDescription>{language === "zh" ? "各项目任务完成进度" : "Task completion progress by project"}</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-2">

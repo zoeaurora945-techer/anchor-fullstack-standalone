@@ -152,13 +152,22 @@ export function WeekGanttChart({
     setResizingTask(null);
   }, [resizingTask, dayWidth, weekStart, onUpdateDue]);
 
-  // 全局监听 mouseup 来结束调整大小
+  // 全局监听 mousemove + mouseup 来结束调整大小
   useEffect(() => {
+    const onDocMouseMove = (e: MouseEvent) => {
+      lastMouseX.current = e.clientX;
+    };
     const onDocMouseUp = () => {
       if (resizingTask) handleResizeEnd();
     };
+    if (resizingTask) {
+      document.addEventListener("mousemove", onDocMouseMove);
+    }
     document.addEventListener("mouseup", onDocMouseUp);
-    return () => document.removeEventListener("mouseup", onDocMouseUp);
+    return () => {
+      document.removeEventListener("mousemove", onDocMouseMove);
+      document.removeEventListener("mouseup", onDocMouseUp);
+    };
   }, [resizingTask, handleResizeEnd]);
 
   const todayIdx = useMemo(() => {
