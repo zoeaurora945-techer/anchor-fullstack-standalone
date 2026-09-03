@@ -1,28 +1,93 @@
-import { useState, useMemo, useCallback, useRef } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { t, type Language } from "@/lib/i18n";
-import { ZoomIn, ZoomOut, MoveHorizontal, ChevronLeft, ChevronRight, Edit2, GripVertical, Clock3 } from "lucide-react";
+import {
+  ZoomIn, ZoomOut, MoveHorizontal, ChevronLeft, ChevronRight, CalendarDays,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatShortDate } from "@/lib/utils";
 
-export type GanttTask = {
-  id: string;
-  title: string;
-  status: string;
-  dueAt: string | null;       // ISO string or null
-  createdAt: string | null;   // ISO string or null
-  doneAt: string | null;      // ISO string or null
-  estimatedMinutes: number | null;
-};
+// ─── 类型 ────────────────────────────────────────────────────────────────────
 
 export type GanttProject = {
   id: string;
   title: string;
   color: string;
   status: string;
-  tasks: GanttTask[];
-  onTaskClick?: (task: GanttTask) => void;
+  tasks: Array<{
+    id: string;
+    title: string;
+    status: string;
+    dueAt: string | null;
+    createdAt: string | null;
+    doneAt: string | null;
+    estimatedMinutes: number | null;
+  }>;
 };
+
+// ─── 工具函数 ─────────────────────────────────────────────────────────────────
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function getWeekStart(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getDay() || 7; // 1=Mon..7=Sun
+  d.setDate(d.getDate() - day + 1);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function buildDayGrid(weekStart: Date): Array<{ label: string; date: Date; isWeekend: boolean }> {
+  const zh = ["日", "一", "二", "三", "四", "五", "六"];
+  return Array.from({ length: 14 }, (_, i) => {
+    const d = new Date(weekStart);
+    d.setDate(d.getDate() + i);
+    return { label: zh[d.getDay()], date: d, isWeekend: d.getDay() === 0 || d.getDay() === 6 };
+  });
+}
+
+/** 根据时间重叠分配 Y 行（同一项目内多个任务不同时占同一行）*/
+function assignLanes(tasks: GanttProject["tasks"]): number[] {
+  if (tasks.length <= 1) return tasks.map(() => 0);
+  const sorted = tasks.map((_, i) => i).sort((a, b) => {
+    const sa = slotOf(tasks[a]);
+    const sb = slotOf(tasks[b]);
+    return (sa.start ?? 0) - (sb.start ?? 0);
+  });
+  const lanes: number[] = new Array(tasks.length).fill(0);
+  const active: Array<{ end: number; lane: number }> = [];
+  for (const idx of sorted) {
+    const s = slotOf(tasks[idx]);
+    const start = s.start ?? 0;
+    // 找第一个不重叠的 lane
+    let lane = 0;
+    const alive = active.filter((a) => a.end > start);
+    // 重新计算：从 0 开始找空闲 lane
+    const usedLanes = new Set(alive.map((a) => a.lane));
+    while (usedLanes.has(lane)) lane++;
+    lanes[idx] = lane;
+    // 把旧 active 里已过期的去掉，加入新的
+    const kept = active.filter((a) => a.end > start);
+    kept.push({ end: s.end ?? 0, lane });
+    // 重排
+    kept.sort((a, b) => a.end - b.end);
+    active.length = 0;
+    active.push(...kept);
+  }
+  return lanes;
+}
+
+function slotOf(t: GanttProject["tasks"][number]) {
+  const created = t.createdAt ? new Date(t.createdAt).getTime() : null;
+  const done = t.doneAt ? new Date(t.doneAt).getTime() : null;
+  const due = t.dueAt ? new Date(t.dueAt).getTime() : null;
+  let start: number | null = created ?? (due ?? null);
+  let end: number | null = done ?? due ?? (start !== null ? start + DAY_MS : null);
+  if (end && end < (start ?? 0)) end = (start ?? 0) + DAY_MS;
+  return { start, end };
+}
+
+// ─── 状态颜色 ─────────────────────────────────────────────────────────────────
 
 const STATUS_COLOR: Record<string, string> = {
   todo: "#60a5fa",
@@ -45,65 +110,35 @@ const STATUS_LABEL: Record<string, string> = {
   dropped: "已放弃",
 };
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-/** 获取指定日期所在周的周一（0=周日）*/
-function getWeekStart(date: Date): Date {
-  const d = new Date(date);
-  const day = d.getDay() || 7;
-  d.setDate(d.getDate() - day + 1);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-/** 生成 N 天网格 */
-function buildDayGrid(weekStart: Date, count: number): Array<{ label: string; date: Date; isWeekend: boolean }> {
-  const zh = ["日", "一", "二", "三", "四", "五", "六"];
-  return Array.from({ length: count }, (_, i) => {
-    const d = new Date(weekStart);
-    d.setDate(d.getDate() + i);
-    return { label: zh[d.getDay()], date: d, isWeekend: d.getDay() === 0 || d.getDay() === 6 };
-  });
-}
-
-/** 解析 ISO 日期字符串为 Date（失败返回 null）*/
-function parseDate(s: string | null | undefined): Date | null {
-  if (!s) return null;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
+// ─── 主组件 ───────────────────────────────────────────────────────────────────
 
 export function WeekGanttChart({
   projects,
   language,
+  onEditTask,
 }: {
   projects: GanttProject[];
   language: Language;
+  onEditTask?: (task: GanttProject["tasks"][number]) => void;
 }) {
   const copy = t(language);
   const [zoom, setZoom] = useState(1);
   const [scrollX, setScrollX] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [dragStart, setDragStart] = useState(0);
-
-  /** 日期偏移（以周为单位，0=本周，-1=上周，-2=上上周，1=下周） */
   const [weekOffset, setWeekOffset] = useState(0);
-  const [weekDropdownOpen, setWeekDropdownOpen] = useState(false);
 
   const today = useMemo(() => new Date(), []);
-  const weekStart = useMemo(() => {
-    const s = getWeekStart(today);
-    s.setDate(s.getDate() + weekOffset * 7);
-    return s;
-  }, [today, weekOffset]);
+  const weekStart = useMemo(
+    () => getWeekStart(new Date(today.getTime() + weekOffset * 7 * DAY_MS)),
+    [today, weekOffset],
+  );
+  const days = useMemo(() => buildDayGrid(weekStart), [weekStart]);
 
-  // 扩展窗口：±3 天，覆盖跨周任务
-  const windowDays = 21;
-  const days = useMemo(() => buildDayGrid(weekStart, windowDays), [weekStart]);
   const dayWidth = 48 * zoom;
   const totalWidth = days.length * dayWidth;
   const windowStart = weekStart.getTime();
-  const windowEnd = weekStart.getTime() + windowDays * DAY_MS;
+  const windowEnd = weekStart.getTime() + days.length * DAY_MS;
   const windowMs = windowEnd - windowStart;
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -123,71 +158,9 @@ export function WeekGanttChart({
     return days.findIndex((d) => d.date.toDateString() === today.toDateString());
   }, [days, today]);
 
-  const scrollToToday = useCallback(() => {
-    const targetX = Math.max(0, todayIdx * dayWidth - 200);
-    setScrollX(targetX);
-  }, [todayIdx, dayWidth]);
+  const scrollToToday = useCallback(() => setScrollX(Math.max(0, todayIdx * dayWidth - 200)), [todayIdx, dayWidth]);
 
-  /** 给同一项目内的任务计算 Y 偏移（错开显示，避免重叠） */
-  const taskRows = useMemo(() => {
-    const result: Array<{ project: GanttProject; task: GanttTask; y: number }> = [];
-    for (const proj of projects) {
-      const tasksInRow = proj.tasks.filter((t) => {
-        const created = parseDate(t.createdAt);
-        const done = parseDate(t.doneAt);
-        const due = parseDate(t.dueAt);
-        let start = created ?? (due ? new Date(due.getTime() - DAY_MS) : new Date());
-        let end = done ?? due ?? new Date(start.getTime() + DAY_MS);
-        if (end.getTime() < start.getTime()) end = new Date(start.getTime() + DAY_MS);
-        // 任务与 21 天窗口有交集才显示
-        return !(end.getTime() < windowStart || start.getTime() > windowEnd);
-      });
-      tasksInRow.forEach((task, i) => {
-        result.push({ project: proj, task, y: i });
-      });
-    }
-    return result;
-  }, [projects, windowStart, windowEnd]);
-
-  /** 按 project.id → task 在行内的 Y 索引映射 */
-  const taskYMap = useMemo(() => {
-    const map = new Map<string, number>();
-    taskRows.forEach((r) => map.set(r.project.id + "|" + r.task.id, r.y));
-    return map;
-  }, [taskRows]);
-
-  // ─── 拖拽改期（Drag to reschedule）───
-  const dragTaskRef = useRef<{ taskId: string; projectTitle: string; startX: number; origDueStr: string | null } | null>(null);
-
-  const handleBarDragStart = useCallback((e: React.MouseEvent, task: GanttTask, projectTitle: string) => {
-    e.stopPropagation();
-    dragTaskRef.current = {
-      taskId: task.id,
-      projectTitle,
-      startX: e.clientX,
-      origDueStr: task.dueAt,
-    };
-    setDragging(true);
-  }, []);
-
-  const handleBarDragMove = useCallback((e: React.MouseEvent) => {
-    if (!dragging || !dragTaskRef.current) return;
-    const dx = e.clientX - dragTaskRef.current.startX;
-    const dayDelta = Math.round(dx / dayWidth);
-    const origDue = parseDate(dragTaskRef.current.origDueStr);
-    if (!origDue) return;
-    const newDue = new Date(origDue.getTime() + dayDelta * DAY_MS);
-    // TODO: 调用 trpc.task.update 或回调
-    // for now just log
-    console.log(`[Gantt] drag reschedule ${dragTaskRef.current.taskId} → ${newDue.toISOString()} (${dayDelta} days)`);
-  }, [dragging, dayWidth]);
-
-  const handleBarDragEnd = useCallback(() => {
-    setDragging(false);
-    dragTaskRef.current = null;
-  }, []);
-
-  const groupByStatus = (tasks: GanttTask[]) => {
+  const groupByStatus = (tasks: GanttProject["tasks"]) => {
     const groups: Record<string, { count: number; totalMinutes: number }> = {};
     tasks.forEach((t) => {
       const s = t.status ?? "todo";
@@ -198,10 +171,28 @@ export function WeekGanttChart({
     return groups;
   };
 
+  // 每个项目内任务分配 Y 行
+  const laneMap = useMemo(() => {
+    const map: Record<string, number[]> = {};
+    for (const proj of projects) {
+      map[proj.id] = assignLanes(proj.tasks);
+    }
+    return map;
+  }, [projects]);
+
+  const maxLanesPerProject = useMemo(() => {
+    let max = 1;
+    for (const ids of Object.values(laneMap)) max = Math.max(max, ...ids.map((l) => l + 1));
+    return max;
+  }, [laneMap]);
+
+  const rowHeight = 44;
+  const rowGap = 4;
+
   return (
     <div className="space-y-3">
-      {/* 工具栏 */}
-      <div className="flex items-center justify-between gap-2 flex-wrap">
+      {/* ── 工具栏：左=缩放/重置，右=周导航+日期范围 ── */}
+      <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-1">
           <Button size="sm" variant="outline" onClick={() => setZoom((z) => Math.min(2, z + 0.25))} title={copy.ganttZoomIn}>
             <ZoomIn className="h-3.5 w-3.5" />
@@ -214,73 +205,47 @@ export function WeekGanttChart({
           </Button>
         </div>
 
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <ChevronLeft
-            className="h-4 w-4 cursor-pointer hover:text-foreground transition"
-            onClick={() => setScrollX((x) => Math.max(0, x - dayWidth))}
-          />
-          <span>{formatShortDate(days[0].date)} ~ {formatShortDate(days[days.length - 1].date)}</span>
-          <ChevronRight
-            className="h-4 w-4 cursor-pointer hover:text-foreground transition"
-            onClick={() => setScrollX((x) => x + dayWidth)}
-          />
-
-          {/* 日期选择器：右上角切换周 */}
-          <div className="relative">
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 text-xs gap-1"
-              onClick={() => setWeekDropdownOpen((v) => !v)}
-            >
-              <Clock3 className="h-3 w-3" />
-              {weekOffset === 0
-                ? (language === "zh" ? "本周" : "This week")
-                : weekOffset === -1
-                ? (language === "zh" ? "上周" : "Last week")
-                : weekOffset === -2
-                ? (language === "zh" ? "上上周" : "2 weeks ago")
-                : weekOffset === 1
-                ? (language === "zh" ? "下周" : "Next week")
-                : `${weekOffset > 0 ? "+" : ""}${weekOffset}w`}
-              <ChevronLeft className={cn("h-3 w-3 transition", weekDropdownOpen && "rotate-90")} />
-            </Button>
-            {weekDropdownOpen && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setWeekDropdownOpen(false)} />
-                <div className="absolute right-0 top-full mt-1 z-50 min-w-[140px] rounded-xl border border-border bg-card p-1 shadow-lg">
-                  {([
-                    { v: -2, zh: "上上周", en: "2 weeks ago" },
-                    { v: -1, zh: "上周", en: "Last week" },
-                    { v: 0,  zh: "本周", en: "This week" },
-                    { v: 1,  zh: "下周", en: "Next week" },
-                    { v: 2,  zh: "下下周", en: "2 weeks ahead" },
-                  ] as const).map((opt) => (
-                    <button
-                      key={opt.v}
-                      className={cn(
-                        "flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-xs transition",
-                        weekOffset === opt.v
-                          ? "bg-primary/15 font-medium text-primary"
-                          : "hover:bg-muted",
-                      )}
-                      onClick={() => { setWeekOffset(opt.v); setWeekDropdownOpen(false); }}
-                    >
-                      {language === "zh" ? opt.zh : opt.en}
-                      {opt.v === 0 && <span className="ml-auto text-[9px] text-muted-foreground">←</span>}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
+        {/* 周导航 */}
+        <div className="flex items-center gap-1.5">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-xs"
+            onClick={() => setWeekOffset((o) => o - 1)}
+            title={language === "zh" ? "上一周" : "Previous week"}
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            size="sm"
+            variant={weekOffset === 0 ? "default" : "outline"}
+            className="h-7 px-2 text-xs gap-1"
+            onClick={() => setWeekOffset(0)}
+          >
+            <CalendarDays className="h-3 w-3" />
+            {weekOffset === 0
+              ? (language === "zh" ? "今天" : "Today")
+              : `${formatShortDate(days[0].date)} ~ ${formatShortDate(days[days.length - 1].date)}`}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-xs"
+            onClick={() => setWeekOffset((o) => o + 1)}
+            title={language === "zh" ? "下一周" : "Next week"}
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </Button>
+          <span className="ml-1 text-xs text-muted-foreground hidden sm:inline">
+            {formatShortDate(days[0].date)} ~ {formatShortDate(days[days.length - 1].date)}
+          </span>
         </div>
       </div>
 
-      {/* 甘特图主体 */}
+      {/* ── 甘特图主体 ── */}
       <div
         className="relative overflow-hidden rounded-xl border border-border bg-card"
-        style={{ height: Math.max(projects.length * 44 + 48, 120) }}
+        style={{ height: Math.max(projects.length * (rowHeight + rowGap) + 48, 120) }}
       >
         <div
           className="absolute inset-0"
@@ -322,89 +287,87 @@ export function WeekGanttChart({
             )}
 
             {/* 项目行 */}
-            {projects.map((project) => {
+            {projects.map((project, pi) => {
               const group = groupByStatus(project.tasks);
               const totalMinutes = project.tasks.reduce((sum, t) => sum + (t.estimatedMinutes ?? 0), 0) || 1;
               const completedMinutes = project.tasks.filter((t) => t.status === "done").reduce((sum, t) => sum + (t.estimatedMinutes ?? 0), 0);
               const progress = Math.round((completedMinutes / totalMinutes) * 100);
+              const lanes = laneMap[project.id] ?? [];
+              const maxLane = Math.max(...lanes, 0);
+              const projectHeight = rowHeight + maxLane * 22 + rowGap;
 
               return (
                 <div
                   key={project.id}
                   className="relative border-b border-border/30"
-                  style={{ height: 44 }}
+                  style={{ height: projectHeight }}
                 >
-                  {/* 任务条形图 */}
+                  {/* 任务条形图区域 */}
                   <div className="absolute inset-0">
-                    {project.tasks.map((task) => {
-                      const created = parseDate(task.createdAt);
-                      const done = parseDate(task.doneAt);
-                      const due = parseDate(task.dueAt);
-                      const noDue = !due && task.status !== "done";
+                    {project.tasks.map((task, ti) => {
+                      const created = task.createdAt ? new Date(task.createdAt) : null;
+                      const done = task.doneAt ? new Date(task.doneAt) : null;
+                      const due = task.dueAt ? new Date(task.dueAt) : null;
 
-                      let start = created ?? (due ? new Date(due.getTime() - DAY_MS) : new Date());
-                      let end = done ?? due ?? null;
-                      if (!end) end = new Date(start.getTime() + 2 * DAY_MS);
-                      if (end.getTime() < start.getTime()) end = new Date(start.getTime() + DAY_MS);
+                      let start: number | null = created ?? (due ?? null);
+                      let end: number | null = done ?? due ?? null;
+                      if (!end) end = start !== null ? start + 2 * DAY_MS : Date.now();
+                      if (end < (start ?? 0)) end = (start ?? 0) + DAY_MS;
 
-                      // 与 21 天窗口有交集才渲染（不截断，超出边界也画一部分）
-                      if (end.getTime() < windowStart && start.getTime() > windowEnd) return null;
+                      // 不在窗口内则跳过
+                      if (end < windowStart || start! > windowEnd) return null;
 
-                      const clampedStart = Math.max(start.getTime(), windowStart);
-                      const clampedEnd = Math.min(end.getTime(), windowEnd);
+                      const clampedStart = Math.max(start!, windowStart);
+                      const clampedEnd = Math.min(end, windowEnd);
                       const leftPct = ((clampedStart - windowStart) / windowMs) * 100;
                       const widthPct = Math.max(((clampedEnd - clampedStart) / windowMs) * 100, 1.5);
 
                       const isDone = task.status === "done";
+                      const noDue = !task.dueAt && task.status !== "done";
+                      const lane = lanes[ti] ?? 0;
+                      const topOffset = lane * 22;
+
                       const startStr = formatShortDate(new Date(clampedStart));
                       const endStr = formatShortDate(new Date(clampedEnd));
                       const tip = `${task.title} · ${STATUS_LABEL[task.status] ?? task.status} · ${startStr} → ${endStr}${noDue ? "（无截止）" : ""}`;
-
-                      // Y 轴偏移：同项目内多任务错开
-                      const yIdx = taskYMap.get(project.id + "|" + task.id) ?? 0;
-                      const rowHeight = 44;
-                      const maxPerRow = 3;
-                      const yOff = Math.min(yIdx, maxPerRow - 1) * 12;
-                      const barTop = 8 + yOff;
-                      const barHeight = Math.min(28, rowHeight - yOff - 8);
 
                       return (
                         <div
                           key={task.id}
                           className={cn(
-                            "absolute top-0 rounded text-[9px] font-medium text-white flex items-center overflow-hidden cursor-pointer transition hover:brightness-110",
-                            isDone ? STATUS_BG.done : noDue ? "border-dashed border-2 bg-transparent" : cn("border", STATUS_BG[task.status] ?? STATUS_BG.todo),
+                            "absolute top-0 h-5 rounded text-[9px] font-medium text-white flex items-center px-1 overflow-hidden cursor-pointer transition-opacity hover:opacity-90",
+                            STATUS_BG[task.status] ?? STATUS_BG.todo,
+                            noDue && "border-dashed opacity-75",
                           )}
                           style={{
                             left: `${leftPct}%`,
                             width: `${widthPct}%`,
-                            top: `${barTop}px`,
-                            height: `${barHeight}px`,
-                            ...(isDone ? {} : {
-                              backgroundColor: STATUS_COLOR[task.status] ?? STATUS_COLOR.todo,
-                              opacity: noDue ? 0.5 : 0.85,
-                            }),
+                            top: `${topOffset + 2}px`,
+                            backgroundColor: isDone ? undefined : STATUS_COLOR[task.status] ?? STATUS_COLOR.todo,
+                            borderRight: noDue ? "3px dashed var(--ring)" : undefined,
                           }}
                           title={tip}
-                          onClick={() => project.onTaskClick?.(task)}
-                          onMouseDown={(e) => handleBarDragStart(e, task, project.title)}
+                          onClick={() => onEditTask?.(task)}
+                          draggable={!noDue}
                         >
-                          {/* 拖拽手柄（右侧小条） */}
-                          {!isDone && (
-                            <span className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize bg-white/20 hover:bg-white/40 rounded-r transition" />
+                          {/* 拖拽手柄（右端小条，预留功能） */}
+                          {!noDue && (
+                            <div
+                              className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize bg-white/30 hover:bg-white/60 rounded-r"
+                              title={language === "zh" ? "点击编辑任务" : "Click to edit task"}
+                            />
                           )}
-                          <span className="truncate px-1">{task.title}</span>
+                          <span className="truncate pr-2">{task.title}</span>
                           {isDone && <span className="ml-0.5 shrink-0">✓</span>}
-                          {noDue && <span className="ml-0.5 shrink-0 text-[8px] opacity-70">∞</span>}
                         </div>
                       );
                     })}
                   </div>
 
-                  {/* 项目名称 + 进度（z-10 覆盖层） */}
+                  {/* 项目名称 + 进度覆盖层 */}
                   <div
-                    className="absolute left-0 top-0 bottom-0 z-10 flex items-center gap-1.5 px-2 group"
-                    style={{ width: 140 * zoom, background: "linear-gradient(90deg, var(--card) 72%, transparent)" }}
+                    className="absolute left-0 top-0 z-10 flex items-center gap-1.5 px-2"
+                    style={{ width: 140 * zoom, height: projectHeight, background: "linear-gradient(90deg, var(--card) 72%, transparent)" }}
                     title={project.title}
                   >
                     <div
@@ -446,15 +409,18 @@ export function WeekGanttChart({
         )}
       </div>
 
-      {/* 底部说明 */}
+      {/* ── 底部图例 ── */}
       <div className="flex items-center justify-between text-xs text-muted-foreground flex-wrap gap-2">
         <div className="flex flex-wrap items-center gap-3">
           <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-400" />{copy.todo}</span>
           <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-400" />{language === "zh" ? "进行中" : "Doing"}</span>
           <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-400" />{copy.statusCompleted === "Completed" ? "Done" : "已完成"}</span>
           <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-slate-400" />{language === "zh" ? "已放弃" : "Dropped"}</span>
-          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full border border-slate-400/60 bg-transparent" />{language === "zh" ? "无截止" : "No due"}</span>
-          <span className="text-[10px]">{language === "zh" ? "拖拽右侧可改截止日期" : "Drag right edge to reschedule"}</span>
+          <span className="text-[10px] opacity-70">
+            {language === "zh"
+              ? "条=创建→完成；虚线框=无截止时间；拖右端调截止"
+              : "Bar = creation→completion; dashed = no due date; drag right edge to adjust"}
+          </span>
         </div>
         <div className="flex items-center gap-1">
           <span className="text-[10px]">{copy.ganttZoomIn}</span>
