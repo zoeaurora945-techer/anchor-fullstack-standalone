@@ -311,14 +311,6 @@ export function WeekGanttChart({
                   className="relative border-b border-border/20"
                   style={{ height: rowHeight }}
                 >
-                  {/* 任务名称 */}
-                  <div
-                    className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-foreground truncate max-w-[140px]"
-                    title={task.title}
-                  >
-                    {task.title.length > 12 ? task.title.slice(0, 12) + "…" : task.title}
-                  </div>
-
                   {/* 任务条形图 */}
                   <div
                     className={cn(
@@ -335,7 +327,7 @@ export function WeekGanttChart({
                     title={tip}
                     onClick={() => onEditTask?.(task)}
                   >
-                    <span className="truncate pr-2">{task.title}</span>
+                    <span className="truncate pr-2">{task.title.length > 16 ? task.title.slice(0, 16) + "…" : task.title}</span>
                     {isDone && <span className="ml-0.5 shrink-0">✓</span>}
 
                     {/* 拖拽手柄（右端） */}
@@ -392,7 +384,7 @@ export function WeekGanttChart({
                 </div>
                 {/* 完成数 */}
                 <span className="text-[10px] text-muted-foreground w-12 text-right">
-                  {proj.doneTasks}/{proj.totalTasks} ({proj.progress}%)
+                  {proj.doneTasks}/{proj.totalTasks}
                 </span>
               </div>
             ))}
