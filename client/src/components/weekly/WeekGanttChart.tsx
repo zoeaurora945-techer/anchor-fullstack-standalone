@@ -98,7 +98,21 @@ export function WeekGanttChart({
   );
   const days = useMemo(() => buildDayGrid(weekStart), [weekStart]);
 
-  const dayWidth = 48 * zoom;
+  // 使用 useRef 记录容器宽度，实现响应式日宽
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const updateWidth = () => setContainerWidth(el.offsetWidth);
+    updateWidth();
+    window.addEventListener('resize', updateWidth);
+    return () => window.removeEventListener('resize', updateWidth);
+  }, []);
+
+  // 根据容器宽度自动计算 dayWidth（目标：7天填满容器）
+  const dayWidth = containerWidth > 0 ? Math.max(64, Math.floor(containerWidth / 7)) : 96;
   const totalWidth = days.length * dayWidth;
   const windowStart = weekStart.getTime();
   const windowEnd = weekStart.getTime() + days.length * DAY_MS;
@@ -230,7 +244,8 @@ export function WeekGanttChart({
 
       {/* ── 甘特图主体（扁平任务列表）── */}
       <div
-        className="relative overflow-hidden rounded-xl border border-border bg-card"
+        ref={containerRef}
+        className="relative w-full overflow-hidden rounded-xl border border-border bg-card"
         style={{ height: Math.max(sortedTasks.length * (rowHeight + rowGap) + 36, 280) }}
       >
         <div
