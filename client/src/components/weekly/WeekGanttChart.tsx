@@ -25,17 +25,6 @@ export type FlatTask = {
   projectTitle?: string;
 };
 
-/** 项目进度（用于甘特图下方进度条区域） */
-export type ProjectProgress = {
-  id: string;
-  title: string;
-  color: string;
-  status: string;
-  totalTasks: number;
-  doneTasks: number;
-  progress: number;
-};
-
 // ─── 工具函数 ─────────────────────────────────────────────────────────────────
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -84,13 +73,11 @@ const STATUS_LABEL: Record<string, string> = {
 
 export function WeekGanttChart({
   tasks,
-  projects,
   language,
   onEditTask,
   onUpdateDue,
 }: {
   tasks: FlatTask[];
-  projects: ProjectProgress[];
   language: Language;
   onEditTask?: (task: FlatTask) => void;
   onUpdateDue?: (taskId: string, newDueAt: string) => void;
@@ -365,41 +352,6 @@ export function WeekGanttChart({
           </div>
         )}
       </div>
-
-      {/* ── 项目进度条 ── */}
-      {projects.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-muted-foreground">
-            {language === "zh" ? "项目进度" : "Project Progress"}
-          </p>
-          <div className="space-y-1.5">
-            {projects.map((proj) => (
-              <div key={proj.id} className="flex items-center gap-3">
-                {/* 颜色圆点 */}
-                <div
-                  className="h-2.5 w-2.5 rounded-full shrink-0"
-                  style={{ backgroundColor: proj.color || "#60a5fa" }}
-                />
-                {/* 项目名 */}
-                <span className="text-xs text-foreground w-32 truncate" title={proj.title}>
-                  {proj.title}
-                </span>
-                {/* 进度条 */}
-                <div className="flex-1 h-1.5 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full transition-all"
-                    style={{ width: `${proj.progress}%`, backgroundColor: proj.color || "#60a5fa" }}
-                  />
-                </div>
-                {/* 完成数 */}
-                <span className="text-[10px] text-muted-foreground w-12 text-right">
-                  {proj.doneTasks}/{proj.totalTasks}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* ── 底部图例 ── */}
       <div className="flex items-center justify-between text-xs text-muted-foreground flex-wrap gap-2">

@@ -362,20 +362,6 @@ export default function Home() {
                     projectColor: t.projectId ? projectRows.find((p) => p.id === t.projectId)?.color : undefined,
                     projectTitle: t.projectId ? projectRows.find((p) => p.id === t.projectId)?.title : undefined,
                   }))}
-                  projects={projectRows.map((p) => {
-                    const projTasks = taskRows.filter((t) => t.projectId === p.id);
-                    const totalTasks = projTasks.length;
-                    const doneTasks = projTasks.filter((t) => t.status === "done").length;
-                    return {
-                      id: p.id,
-                      title: p.title,
-                      color: p.color ?? "#7FB5D6",
-                      status: p.entityStatus,
-                      totalTasks,
-                      doneTasks,
-                      progress: totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0,
-                    };
-                  })}
                   language={language}
                   onEditTask={(task) => {
                     const found = taskRows.find((x) => x.id === task.id);
@@ -398,7 +384,7 @@ export default function Home() {
                     <CardTitle className="text-base">{language === "zh" ? "项目进度" : "Project Progress"}</CardTitle>
                     <CardDescription>{language === "zh" ? "各项目任务完成进度" : "Task completion progress by project"}</CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-2">
+                  <CardContent className="space-y-3">
                     {projectRows.length === 0 ? (
                       <p className="text-xs text-muted-foreground text-center py-4">{language === "zh" ? "暂无项目，在「我的宇宙」创建第一个行星吧" : "No projects yet. Create your first planet in My Universe."}</p>
                     ) : (
@@ -406,27 +392,38 @@ export default function Home() {
                         const projTasks = taskRows.filter((t) => t.projectId === project.id);
                         const totalTasks = projTasks.length;
                         const doneTasks = projTasks.filter((t) => t.status === "done").length;
+                        const progress = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
                         const statusLabel = project.entityStatus === "active" ? copy.statusActive : project.entityStatus === "paused" ? copy.statusPaused : project.entityStatus === "completed" ? copy.statusCompleted : copy.statusArchived;
                         const statusColor = project.entityStatus === "active" ? "text-emerald-500" : project.entityStatus === "paused" ? "text-amber-500" : project.entityStatus === "completed" ? "text-slate-400" : "text-slate-300";
+                        const barColor = project.color ?? "#7FB5D6";
                         return (
-                          <div key={project.id} className="flex items-center gap-3 py-2 border-b border-border/40 last:border-0">
-                            {/* 颜色圆点 */}
-                            <div
-                              className="h-2.5 w-2.5 rounded-full shrink-0"
-                              style={{ background: project.color ?? "#7FB5D6", boxShadow: `0 0 6px 1px ${project.color ?? "#7FB5D6"}44` }}
-                            />
-                            {/* 项目名 */}
-                            <span className="text-sm font-medium truncate flex-1" title={project.title}>{project.title}</span>
-                            {/* 状态 */}
-                            <span className={`text-xs ${statusColor} shrink-0`}>{statusLabel}</span>
-                            {/* 完成数 */}
-                            <span className="text-xs text-muted-foreground w-12 text-right shrink-0">
-                              {doneTasks}/{totalTasks}
-                            </span>
-                            {/* 编辑 */}
-                            <button onClick={() => handleEditProject(project)} className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition shrink-0">
-                              <Edit2 className="h-3.5 w-3.5" />
-                            </button>
+                          <div key={project.id} className="space-y-1.5">
+                            <div className="flex items-center gap-2">
+                              {/* 颜色圆点 */}
+                              <div
+                                className="h-2.5 w-2.5 rounded-full shrink-0"
+                                style={{ background: barColor, boxShadow: `0 0 6px 1px ${barColor}44` }}
+                              />
+                              {/* 项目名 */}
+                              <span className="text-sm font-medium truncate flex-1" title={project.title}>{project.title}</span>
+                              {/* 状态 */}
+                              <span className={`text-xs ${statusColor} shrink-0`}>{statusLabel}</span>
+                              {/* 完成数 */}
+                              <span className="text-xs text-muted-foreground w-12 text-right shrink-0">
+                                {doneTasks}/{totalTasks}
+                              </span>
+                              {/* 编辑 */}
+                              <button onClick={() => handleEditProject(project)} className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition shrink-0">
+                                <Edit2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                            {/* 进度条 */}
+                            <div className="h-1.5 overflow-hidden rounded-full bg-muted ml-5">
+                              <div
+                                className="h-full rounded-full transition-all"
+                                style={{ width: `${progress}%`, backgroundColor: barColor }}
+                              />
+                            </div>
                           </div>
                         );
                       })
