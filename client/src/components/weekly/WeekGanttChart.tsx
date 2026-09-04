@@ -39,7 +39,7 @@ function getWeekStart(date: Date): Date {
 
 function buildDayGrid(weekStart: Date): Array<{ label: string; date: Date; isWeekend: boolean }> {
   const zh = ["日", "一", "二", "三", "四", "五", "六"];
-  return Array.from({ length: 14 }, (_, i) => {
+  return Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart);
     d.setDate(d.getDate() + i);
     return { label: zh[d.getDay()], date: d, isWeekend: d.getDay() === 0 || d.getDay() === 6 };
@@ -133,7 +133,7 @@ export function WeekGanttChart({
     const daysShift = Math.round(dx / dayWidth);
     const originalDue = new Date(resizingTask.originalDue);
     const newDue = new Date(originalDue.getTime() + daysShift * DAY_MS);
-    if (newDue >= weekStart && newDue <= weekStart + 14 * DAY_MS) {
+    if (newDue >= weekStart && newDue <= weekStart + 7 * DAY_MS) {
       onUpdateDue(resizingTask.id, newDue.toISOString());
     }
     setResizingTask(null);
@@ -211,7 +211,7 @@ export function WeekGanttChart({
             <CalendarDays className="h-3 w-3" />
             {weekOffset === 0
               ? (language === "zh" ? "今天" : "Today")
-              : `${formatShortDate(days[0].date)} ~ ${formatShortDate(days[days.length - 1].date)}`}
+              : `${formatShortDate(days[0].date)} ~ ${formatShortDate(days[6].date)}`}
           </Button>
           <Button
             size="sm"
@@ -223,7 +223,7 @@ export function WeekGanttChart({
             <ChevronRight className="h-3.5 w-3.5" />
           </Button>
           <span className="ml-1 text-xs text-muted-foreground hidden sm:inline">
-            {formatShortDate(days[0].date)} ~ {formatShortDate(days[days.length - 1].date)}
+            {formatShortDate(days[0].date)} ~ {formatShortDate(days[6].date)}
           </span>
         </div>
       </div>
@@ -231,7 +231,7 @@ export function WeekGanttChart({
       {/* ── 甘特图主体（扁平任务列表）── */}
       <div
         className="relative overflow-hidden rounded-xl border border-border bg-card"
-        style={{ height: Math.max(sortedTasks.length * (rowHeight + rowGap) + 40, 120) }}
+        style={{ height: Math.max(sortedTasks.length * (rowHeight + rowGap) + 36, 280) }}
       >
         <div
           className="absolute inset-0"

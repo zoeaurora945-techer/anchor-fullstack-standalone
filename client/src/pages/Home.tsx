@@ -207,7 +207,7 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-[1500px] px-4 py-5 sm:px-7">
+      <div className="mx-auto max-w-[1500px] px-4 py-5 sm:px-7 flex flex-col min-h-0 flex-1">
         <div className="mb-4 flex gap-2 overflow-x-auto md:hidden">
           {navigation.map((item) => (
             <Button key={item.id} size="sm" variant={view === item.id ? "default" : "outline"} onClick={() => setView(item.id)}>{item.label}</Button>
@@ -341,9 +341,9 @@ export default function Home() {
 
         {/* ========== WEEK VIEW ========== */}
         {view === "week" && (
-          <section className="space-y-5">
+          <section className="flex flex-col gap-5 flex-1 min-h-0">
             {/* 甘特图 */}
-            <Card className="border-primary/20 bg-card/50">
+            <Card className="border-primary/20 bg-card/50 flex-shrink-0">
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2"><Clock3 className="h-4 w-4" />{copy.weekProgress}</CardTitle>
                 <CardDescription>{copy.weekOverview}</CardDescription>
@@ -375,10 +375,9 @@ export default function Home() {
               </CardContent>
             </Card>
 
-            <div className="grid gap-5 lg:grid-cols-[1fr_0.8fr]">
+            <div className="flex flex-col lg:flex-row gap-5 flex-1 min-h-0">
               {/* 左侧：项目进度列表 */}
-              <div className="space-y-5">
-                {/* 项目进度 */}
+              <div className="flex-1 min-h-0 space-y-5">
                 <Card className="border-border bg-card/50">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-base">{language === "zh" ? "项目进度" : "Project Progress"}</CardTitle>
