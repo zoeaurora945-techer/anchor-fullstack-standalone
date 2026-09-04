@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { X, Star, Pencil } from "lucide-react";
 import { t, type Language } from "@/lib/i18n";
 import { taskVisualState, ENTITY_STATUS_LABEL, TASK_STATUS_LABEL, type TaskVisual } from "@shared/taskStatusVisual";
@@ -49,7 +49,12 @@ export function SubSpaceView({
   onEditTask: (task: SubTask) => void;
 }) {
   const copy = t(language);
-  const now = useMemo(() => new Date(), []);
+  const [now, setNow] = useState(new Date());
+  // 每秒更新 now，使卫星颜色/计数实时刷新
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
   const projList = useMemo(() => projects.filter((p) => p.goalId === goal.id), [projects, goal.id]);
   const tasksByProject = useMemo(() => {
     const map: Record<string, SubTask[]> = {};
@@ -141,11 +146,6 @@ export function SubSpaceView({
                   className="absolute left-0 top-0"
                   style={{ animation: `subspace-spin ${duration}s linear infinite`, transformOrigin: "0 0" }}
                 >
-                  {/* 轨道线 */}
-                  <span
-                    className="absolute rounded-full border border-white/10"
-                    style={{ width: radius * 2, height: radius * 2, left: -radius, top: -radius }}
-                  />
                   {/* 行星定位锚点（随轨道公转，自身不旋转） */}
                   <div className="absolute" style={{ left: radius, top: 0 }}>
                     {/* 反向旋转层：抵消公转自转，使内容保持正向；卫星的环绕由内圈动画叠加 */}

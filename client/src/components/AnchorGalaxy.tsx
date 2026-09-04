@@ -355,7 +355,7 @@ export function AnchorGalaxy({
         planet.position.set(radiusOrbit, 0, 0);
         pivot.add(planet);
 
-        const taskCount = tasks.filter((task) => task.projectId === project.id).length;
+        const taskCount = tasks.filter((task) => task.projectId === project.id && task.status !== "done" && task.status !== "dropped").length;
         const planetSize = 0.42 + Math.min(0.32, taskCount * 0.055);
         const projColor = project.color ? new THREE.Color(project.color) : new THREE.Color(projectIndex % 2 ? 0x7fb5d6 : 0xd8b48c);
         const planetGeo = new THREE.SphereGeometry(planetSize, 32, 32);
@@ -401,7 +401,7 @@ export function AnchorGalaxy({
         root.add(new THREE.Line(orbitGeo, orbitMat));
         disposables.push(orbitGeo, orbitMat);
 
-        const linkedTasks = tasks.filter((task) => task.projectId === project.id);
+        const linkedTasks = tasks.filter((task) => task.projectId === project.id && task.status !== "done" && task.status !== "dropped");
         const now = new Date();
         linkedTasks.slice(0, 8).forEach((task, taskIndex) => {
           const vs = taskVisualState(task, now);
