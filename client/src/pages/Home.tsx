@@ -207,7 +207,8 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="mx-auto flex w-full max-w-[1500px] flex-1 flex-col overflow-auto px-4 py-5 sm:px-7">
+      <div className="flex w-full flex-1 flex-col overflow-auto px-4 py-5 sm:px-7">
+        <div className={cn("mx-auto flex w-full", view !== "week" && "max-w-[1500px]")}>
         <div className="mb-4 flex gap-2 overflow-x-auto md:hidden">
           {navigation.map((item) => (
             <Button key={item.id} size="sm" variant={view === item.id ? "default" : "outline"} onClick={() => setView(item.id)}>{item.label}</Button>
@@ -707,6 +708,7 @@ export default function Home() {
             </div>
           </div>
         )}
+        </div>
       </div>
 
       {/* 子空间（恒星钻取视图）：点击恒星后进入，中央恒星=主线，行星=项目，卫星=任务 */}
