@@ -146,6 +146,11 @@ export function SubSpaceView({
                   className="absolute left-0 top-0"
                   style={{ animation: `subspace-spin ${duration}s linear infinite`, transformOrigin: "0 0" }}
                 >
+                  {/* 轨道线 */}
+                  <span
+                    className="absolute rounded-full border border-white/10"
+                    style={{ width: radius * 2, height: radius * 2, left: -radius, top: -radius }}
+                  />
                   {/* 行星定位锚点（随轨道公转，自身不旋转） */}
                   <div className="absolute" style={{ left: radius, top: 0 }}>
                     {/* 反向旋转层：抵消公转自转，使内容保持正向；卫星的环绕由内圈动画叠加 */}

@@ -714,7 +714,7 @@ export function AnchorGalaxy({
   }, [destroyingGoalId, goals, onDestroyComplete]);
 
   return (
-    <div className="relative h-[460px] w-full overflow-hidden rounded-3xl border border-primary/20 bg-[#0a1836] shadow-[0_0_90px_rgba(70,120,220,0.18)]">
+    <div className="relative h-[460px] w-full overflow-hidden border border-primary/20 bg-[#0a1836] shadow-[0_0_90px_rgba(70,120,220,0.18)]">
       <div ref={containerRef} className="absolute inset-0" />
       <div className="pointer-events-none absolute bottom-3 left-4 text-[11px] text-white/45">
         拖拽旋转 · 滚轮缩放 · 点击恒星编辑或摧毁
