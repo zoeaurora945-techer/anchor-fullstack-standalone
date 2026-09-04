@@ -186,7 +186,7 @@ export default function Home() {
   );
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="flex min-h-screen flex-col bg-background text-foreground">
       <header className="sticky top-0 z-30 border-b border-border bg-background/85 backdrop-blur-xl">
         <div className="mx-auto flex max-w-[1500px] items-center justify-between gap-4 px-4 py-3 sm:px-7">
           <div className="flex items-center gap-3">
@@ -207,7 +207,7 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-[1500px] px-4 py-5 sm:px-7 flex flex-col min-h-0 flex-1">
+      <div className="mx-auto flex w-full max-w-[1500px] flex-1 flex-col overflow-auto px-4 py-5 sm:px-7">
         <div className="mb-4 flex gap-2 overflow-x-auto md:hidden">
           {navigation.map((item) => (
             <Button key={item.id} size="sm" variant={view === item.id ? "default" : "outline"} onClick={() => setView(item.id)}>{item.label}</Button>
