@@ -217,7 +217,7 @@ export default function Home() {
 
         {/* 宇宙模式切换 */}
         {view === "universe" && (
-          <div className="mb-4 flex w-fit rounded-full border border-border bg-muted/50 p-1">
+          <div className="mb-4 flex w-fit border border-border bg-muted/50 p-1">
             <Button size="sm" variant={universeMode === "life" ? "default" : "ghost"} onClick={() => setUniverseMode("life")}>{copy.dynamic}</Button>
             <Button size="sm" variant={universeMode === "archive" ? "default" : "ghost"} onClick={() => setUniverseMode("archive")}>{copy.archive}</Button>
           </div>
